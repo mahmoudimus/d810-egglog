@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from d810.mba.extension_api import (
+    CanonicalFixedBindings,
     AcMatchStopReason,
     CanonicalCompiledPattern,
     CanonicalPatternMalformed,
@@ -156,8 +157,18 @@ class CanonicalMbaRuleCatalogue:
                     width=canonical_candidate.width,
                 ):
                     continue
+                # Constraint evaluation may derive replacement-only values
+                # (for example ``val_res``) that are intentionally absent
+                # from the matcher's original binding object.  Materialize
+                # from the validated derived mapping, while retaining the
+                # matcher's raw candidate paths for native reconstruction.
+                derived_bindings = CanonicalFixedBindings(
+                    bindings,
+                    match.bindings.candidate_paths,
+                    match.bindings.width,
+                )
                 replacement = canonicalize_mba_term(
-                    pattern.materialize_replacement(match.bindings)
+                    pattern.materialize_replacement(derived_bindings)
                 ).canonical_term
                 key = (id(pattern.rule), term_fingerprint(replacement))
                 if key in seen:

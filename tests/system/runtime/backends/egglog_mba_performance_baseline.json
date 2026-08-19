@@ -25,7 +25,7 @@
   "baseline_p95_ms": 4.014116583857685,
   "source": "native Egglog handler receipt telemetry; update only from this exact named corpus",
   "phase0_stage_profiles": {
-    "image": "idapro-9.4-speedups:latest",
+    "image": "idapro-9.4-speedups:cli",
     "image_id": "sha256:a60b5ccbd800319ccbfb959bf88c980f9c32029032263bb38a42cb7af3e7b082",
     "egglog_version": "13.2.0",
     "profile_contract": "five active-AST handler/extraction/native-Z3 samples; reconstruction is a test materializer; informational only",
@@ -38,7 +38,7 @@
       "stage_attempt_outcomes": {"accepted": 5},
       "stage_timing_ms": {
         "root_eligibility": {"p50_ms": 0.002084067091345787, "p95_ms": 0.00378340482711792, "max_ms": 0.00400003045797348},
-        "ast_construction": {"p50_ms": 0.0008330680429935455, "p95_ms": 0.0014252495020627975, "max_ms": 0.001542037352919579},
+        "ast_construction": {"p50_ms": 0.0008330680429935455, "p95_ms": 0.0014252495020627975, "max_ms": 0.0015420373529195786},
         "native_preflight": {"p50_ms": 0.21312502212822437, "p95_ms": 0.2899502869695425, "max_ms": 0.29270886443555355},
         "egglog_extraction": {"p50_ms": 5.002208985388279, "p95_ms": 8.715900126844645, "max_ms": 9.120791917666793},
         "native_z3": {"p50_ms": 19.834249978885055, "p95_ms": 33.58163312077522, "max_ms": 36.09312488697469},
