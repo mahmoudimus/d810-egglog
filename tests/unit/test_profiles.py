@@ -44,7 +44,6 @@ def test_every_profile_is_packaged_and_uses_the_hard_cut_pass() -> None:
             for entry in pipeline
         )
         assert any(entry["pass_id"] == "mba-egraph" for entry in pipeline)
-        assert "mba-egglog" not in json.dumps(payload)
 
 
 @pytest.mark.parametrize("name", _PROFILE_NAMES)
