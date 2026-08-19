@@ -445,6 +445,13 @@ def test_mutating_enrolled_duck_invalidates_structural_authorization(monkeypatch
     duck.aliases = ()
     extension_api.enroll_structural_rule(duck)
 
+    duck.semantic_fingerprint = "tampered-fingerprint"
+    assert not extension_api.is_enrolled_structural_rule(duck)
+    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(
+        duck
+    )
+    extension_api.enroll_structural_rule(duck)
+
     duck.direction = "ror"
     duck.count = 2
     duck.pattern, duck.replacement = build_rotate_identity(8, "ror", 2)
