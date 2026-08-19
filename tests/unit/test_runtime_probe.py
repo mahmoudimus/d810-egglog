@@ -18,9 +18,7 @@ def test_supported_13_2_release_is_available(monkeypatch: pytest.MonkeyPatch) ->
     runtime = _runtime_module()
     imported: list[str] = []
 
-    monkeypatch.setattr(
-        importlib.metadata, "version", lambda distribution: "13.2.0"
-    )
+    monkeypatch.setattr(importlib.metadata, "version", lambda distribution: "13.2.0")
     monkeypatch.setattr(
         importlib,
         "import_module",

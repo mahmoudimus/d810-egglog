@@ -44,19 +44,23 @@ forbidden_modules =
     d810.manager
     d810.ui
 
-[importlinter:contract:extension-d810-boundary]
-name = Extension integration uses the lifted D810 contract boundary
+[importlinter:contract:extension-d810-direct-boundary]
+# This is intentionally a direct-edge boundary. The three exact exceptions
+# below are the extension's integration ports: the portable DTO contract, the
+# IDA-bound host facade, and the minimum optimizer registration base. The host
+# facades transitively depend on D810 internals, so setting
+# allow_indirect_imports=False would reject these approved adapters themselves.
+# Keep the exceptions target-specific: every other direct import from the
+# extension into the d810 tree must fail.
+name = Extension modules use only the approved direct D810 integration ports
 type = forbidden
 allow_indirect_imports = True
 source_modules =
     d810_egglog
 forbidden_modules =
-    d810.core
-    d810.capabilities
-    d810.evaluator
-    d810.families
-    d810.hexrays
-    d810.ir
-    d810.optimizers
-    d810.passes
-    d810.transforms
+    d810
+ignore_imports =
+    d810_egglog.** -> d810.mba.extension_api
+    d810_egglog.** -> d810.backends.mba.extension_host
+    d810_egglog.** -> d810.optimizers.microcode.instructions.peephole.handler
+unmatched_ignore_imports_alerting = none
