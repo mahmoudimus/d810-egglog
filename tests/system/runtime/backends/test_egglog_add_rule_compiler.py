@@ -8,10 +8,9 @@ import pytest
 egglog = pytest.importorskip("egglog")
 ida_hexrays = pytest.importorskip("ida_hexrays")
 
-from d810.backends.mba import egglog_add_rule_compiler  # noqa: E402
-from d810.backends.mba.egglog_add_rule_compiler import (  # noqa: E402
+from d810.mba import certified_rule_compiler  # noqa: E402
+from d810.mba.certified_rule_compiler import (  # noqa: E402
     compile_add_rule_catalogue,
-    specialize,
 )
 from d810.mba.egraph_contracts import EgraphExtractionReceipt  # noqa: E402
 from d810.mba.certified_rule_compiler import (  # noqa: E402
@@ -29,6 +28,7 @@ from d810.mba.typed_term import TypedBvTerm  # noqa: E402
 import d810_egglog.rules.egglog_optimizer as egglog_optimizer  # noqa: E402
 from d810_egglog.rules.egglog_optimizer import (  # noqa: E402
     EgglogOptimizer,
+    specialize,
 )
 from d810_egglog.rule_lowering import (  # noqa: E402
     CanonicalMbaRuleCatalogueReport,
@@ -74,7 +74,7 @@ def _prove(rule_name: str, candidate: AstNode):
 
 
 def test_specialization_api_does_not_expose_caller_owned_graph_registration():
-    assert not hasattr(egglog_add_rule_compiler, "register_specialization")
+    assert not hasattr(certified_rule_compiler, "register_specialization")
 
 
 def test_specializes_direct_add_rule_and_proves_the_egglog_equation():

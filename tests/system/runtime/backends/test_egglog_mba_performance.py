@@ -16,8 +16,8 @@ import pytest
 egglog = pytest.importorskip("egglog")
 ida_hexrays = pytest.importorskip("ida_hexrays")
 
-from d810.backends.mba import egglog_add_rule_compiler as catalogue_compiler  # noqa: E402
-from d810.backends.mba.egglog_add_rule_compiler import (  # noqa: E402
+from d810.mba import certified_rule_compiler as catalogue_compiler  # noqa: E402
+from d810.mba.certified_rule_compiler import (  # noqa: E402
     compiled_rules_for_families,
 )
 from d810.mba.egraph_contracts import (  # noqa: E402

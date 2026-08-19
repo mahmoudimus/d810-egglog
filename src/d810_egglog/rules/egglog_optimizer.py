@@ -131,6 +131,41 @@ class _RuleSpecialization:
     source_names: tuple[str, ...]
 
 
+_RUNTIME_AST_PROXY_MODULES = frozenset(
+    {"d810.hexrays.expr.p_ast", "d810.speedups.expr.c_ast"}
+)
+
+
+def _unwrap_runtime_ast(ast: object) -> object | None:
+    """Unwrap an approved live AST proxy before portable matching.
+
+    Hex-Rays AST proxies are copy-on-write adapters.  Matching against the
+    proxy itself changes the specialization contract because callers receive
+    the wrapper instead of the underlying AST value.  Keep this provider-side
+    bridge narrow: only the two D810 proxy implementations are accepted, the
+    target is read without invoking proxy behavior, and cycles/chains fail
+    closed.
+    """
+
+    current = ast
+    seen: set[int] = set()
+    for _ in range(4):
+        current_type = type(current)
+        if current_type.__name__ != "AstProxy":
+            return current
+        if current_type.__module__ not in _RUNTIME_AST_PROXY_MODULES:
+            return None
+        identity = id(current)
+        if identity in seen:
+            return None
+        seen.add(identity)
+        try:
+            current = object.__getattribute__(current, "_target")
+        except (AttributeError, TypeError):
+            return None
+    return None
+
+
 def specialize(rule, ast, *, destination_size: int):
     """Materialize one admitted typed-term application through the host.
 
@@ -139,8 +174,11 @@ def specialize(rule, ast, *, destination_size: int):
     """
 
     try:
+        candidate_ast = _unwrap_runtime_ast(ast)
+        if candidate_ast is None:
+            return None
         candidate = native_mba_host_services().capture_ast(
-            ast,
+            candidate_ast,
             destination_size=int(destination_size),
         )
         catalogue = canonical_pattern_catalogue_for_rules((rule,))
@@ -171,7 +209,7 @@ def specialize(rule, ast, *, destination_size: int):
                 continue
             return _RuleSpecialization(
                 rule=rule,
-                candidate_ast=ast,
+                candidate_ast=candidate_ast,
                 replacement_ast=replacement_ast,
                 source_names=(str(rule.source_name), *tuple(rule.aliases)),
             )

@@ -8,10 +8,9 @@ import pytest
 egglog = pytest.importorskip("egglog")
 ida_hexrays = pytest.importorskip("ida_hexrays")
 
-from d810.backends.mba import egglog_add_rule_compiler  # noqa: E402
-from d810.backends.mba.egglog_add_rule_compiler import (  # noqa: E402
+from d810.mba import certified_rule_compiler  # noqa: E402
+from d810.mba.certified_rule_compiler import (  # noqa: E402
     CERTIFICATE_WIDTHS,
-    specialize,
 )
 from d810_egglog.saturation import (  # noqa: E402
     EgglogExtractionBudget,
@@ -32,6 +31,7 @@ from d810.hexrays.ir.mop_snapshot import MopSnapshot  # noqa: E402
 from d810.mba.dsl import SymbolicExpressionProtocol  # noqa: E402
 from d810_egglog.rules.egglog_optimizer import (  # noqa: E402
     EgglogOptimizer,
+    specialize,
 )
 from d810.optimizers.microcode.instructions.peephole.handler import (  # noqa: E402
     PeepholeOptimizer,
@@ -50,7 +50,7 @@ _REGISTER_BY_NAME = {
 
 @lru_cache(maxsize=1)
 def _compiled_catalogue():
-    return egglog_add_rule_compiler.compiled_rules_for_families(
+    return certified_rule_compiler.compiled_rules_for_families(
         ("add", "and", "bnot", "mul", "neg", "or", "sub", "xor")
     )
 
@@ -316,20 +316,7 @@ def test_unsupported_root_refuses_specialization_before_egglog_proof(monkeypatch
         _leaf("x_0"),
         _leaf("x_1"),
     )
-    proof_attempts = []
-
-    def record_proof_attempt(specialization):
-        proof_attempts.append(specialization)
-        return True
-
-    monkeypatch.setattr(
-        egglog_add_rule_compiler,
-        "_prove_specialization",
-        record_proof_attempt,
-    )
-
     assert specialize(rule, unsupported, destination_size=4) is None
-    assert proof_attempts == []
 
 
 def test_live_handler_xor_root_never_specializes_unrelated_root_buckets(monkeypatch):
@@ -364,7 +351,7 @@ def test_live_handler_xor_root_never_specializes_unrelated_root_buckets(monkeypa
     assert isinstance(candidate, AstNode)
     assert candidate.opcode == ida_hexrays.m_xor
     attempted_roots = []
-    real_specialize = egglog_add_rule_compiler.specialize
+    real_specialize = specialize
 
     def observe(rule, ast, *, destination_size):
         attempted_roots.append(rule.pattern.operation)

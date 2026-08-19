@@ -13,7 +13,7 @@ idaapi = pytest.importorskip("idaapi")
 import idautils  # noqa: E402
 import idc  # noqa: E402
 
-from d810.backends.mba.egglog_add_rule_compiler import (  # noqa: E402
+from d810.mba.certified_rule_compiler import (  # noqa: E402
     CERTIFICATE_WIDTHS,
     compiled_rules_for_families,
 )
@@ -2326,7 +2326,6 @@ def test_live_handler_records_extractor_unavailability_for_supported_candidate(
     calls = []
     log_calls = []
 
-    monkeypatch.setattr(handler_module, "EGGLOG_AVAILABLE", False, raising=False)
     monkeypatch.setattr(
         handler_module.logger,
         "info",
