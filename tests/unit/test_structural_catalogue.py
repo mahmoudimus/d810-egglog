@@ -18,8 +18,7 @@ def test_fixed_rotate_structural_catalogue_certifies_every_nonzero_count():
             receipts = compile_fixed_rotate_rules(width=width, direction=direction)
             assert len(receipts) == width - 1
             assert all(
-                receipt.status is StructuralRuleStatus.COMPILED
-                for receipt in receipts
+                receipt.status is StructuralRuleStatus.COMPILED for receipt in receipts
             )
             assert all(receipt.proof_verdict is True for receipt in receipts)
             assert tuple(receipt.count for receipt in receipts) == tuple(
@@ -161,7 +160,7 @@ def test_fixed_rotate_rejects_signed_mixed_width_and_extra_operand_shapes():
             fixed_shift_term("lshr", 16, x16, 11),
         ),
     )
-    assert catalogue.canonical_applications(mixed_width_candidate) == ()
+    assert catalogue.canonical_applications(mixed_width_candidate).applications == ()
     with pytest.raises(ValueError, match="same width"):
         TypedBvTerm(
             "or",
@@ -187,7 +186,36 @@ def test_fixed_rotate_rejects_signed_mixed_width_and_extra_operand_shapes():
         32,
         children=(TypedBvTerm(None, 32, value=0), source),
     )
-    assert catalogue.canonical_applications(extra_operand) == ()
+    assert catalogue.canonical_applications(extra_operand).applications == ()
+
+
+def test_structural_catalogue_report_marks_unmeasured_matcher_facts_explicitly():
+    from d810_egglog.structural_rules import (
+        StructuralRuleCatalogueReport,
+        compile_fixed_rotate_rules,
+        structural_catalogue_for_rules,
+    )
+
+    rule = compile_fixed_rotate_rules(width=8, direction="rol")[0].compiled_rule
+    assert rule is not None
+    x = TypedBvTerm(None, 8, leaf_key=("register", "x"))
+    candidate = TypedBvTerm(
+        "or",
+        8,
+        children=(
+            fixed_shift_term("shl", 8, x, 1),
+            fixed_shift_term("lshr", 8, x, 7),
+        ),
+    )
+
+    report = structural_catalogue_for_rules((rule,)).canonical_applications(candidate)
+
+    assert isinstance(report, StructuralRuleCatalogueReport)
+    assert report.matcher_backend == "structural"
+    assert report.applications
+    assert report.comparisons is None
+    assert report.commuted_branches is None
+    assert report.fixed_binding_count is None
 
 
 def test_snapshot_fingerprint_binds_admitted_structural_rotate_inventory():
@@ -424,9 +452,7 @@ def test_public_enrollment_rejects_equivalent_duck_with_dishonest_fingerprint(
         proof_calls += 1
         return True
 
-    monkeypatch.setattr(
-        extension_api, "prove_typed_term_equivalence", unexpected_proof
-    )
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", unexpected_proof)
     forged = EquivalentDuck()
 
     with pytest.raises(ValueError, match="fingerprint"):
@@ -476,9 +502,7 @@ def test_public_enrollment_rejects_malformed_nested_typed_terms(
         proof_calls += 1
         return True
 
-    monkeypatch.setattr(
-        extension_api, "prove_typed_term_equivalence", unexpected_proof
-    )
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", unexpected_proof)
 
     with pytest.raises(ValueError, match="TypedBvTerm"):
         extension_api.enroll_structural_rule(rule)
@@ -512,9 +536,7 @@ def test_mutating_enrolled_duck_invalidates_structural_authorization(monkeypatch
     duck = MutableDuck()
     duck.pattern = pattern
     duck.replacement = replacement
-    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(
-        duck
-    )
+    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(duck)
     monkeypatch.setattr(
         extension_api, "prove_typed_term_equivalence", lambda *_terms: True
     )
@@ -529,17 +551,13 @@ def test_mutating_enrolled_duck_invalidates_structural_authorization(monkeypatch
 
     duck.semantic_fingerprint = "tampered-fingerprint"
     assert not extension_api.is_enrolled_structural_rule(duck)
-    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(
-        duck
-    )
+    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(duck)
     extension_api.enroll_structural_rule(duck)
 
     duck.direction = "ror"
     duck.count = 2
     duck.pattern, duck.replacement = build_rotate_identity(8, "ror", 2)
-    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(
-        duck
-    )
+    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(duck)
 
     assert not extension_api.is_enrolled_structural_rule(duck)
     snapshot = build_certified_catalogue_snapshot(

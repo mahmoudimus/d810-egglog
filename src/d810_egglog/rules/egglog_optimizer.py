@@ -48,7 +48,10 @@ from d810_egglog.rule_lowering import (
     CanonicalMbaRuleCatalogueReport,
     canonical_pattern_catalogue_for_rules,
 )
-from d810_egglog.structural_rules import compile_all_fixed_rotate_rules
+from d810_egglog.structural_rules import (
+    StructuralRuleCatalogueReport,
+    compile_all_fixed_rotate_rules,
+)
 from d810_egglog.saturation import (
     EgglogFunctionBudget,
     EgglogExtractionBudget,
@@ -88,10 +91,10 @@ class _SelectedRuleCatalogue:
 class _CanonicalMatchTelemetry:
     """Portable telemetry for one canonical catalogue admission pass."""
 
-    comparisons: int
-    matcher_backend: str = "python"
-    lazy_swaps: int = 0
-    fixed_binding_count: int = 0
+    comparisons: int | None
+    matcher_backend: str | None = "python"
+    lazy_swaps: int | None = None
+    fixed_binding_count: int | None = None
     matches: tuple[object, ...] = ()
 
     @classmethod
@@ -100,6 +103,18 @@ class _CanonicalMatchTelemetry:
     ) -> "_CanonicalMatchTelemetry":
         return cls(
             comparisons=report.comparisons,
+            lazy_swaps=report.commuted_branches,
+            fixed_binding_count=report.fixed_binding_count,
+            matches=report.matches,
+        )
+
+    @classmethod
+    def from_structural_report(
+        cls, report: StructuralRuleCatalogueReport
+    ) -> "_CanonicalMatchTelemetry":
+        return cls(
+            comparisons=report.comparisons,
+            matcher_backend=report.matcher_backend,
             lazy_swaps=report.commuted_branches,
             fixed_binding_count=report.fixed_binding_count,
             matches=report.matches,
@@ -116,14 +131,13 @@ class _RuleSpecialization:
     source_names: tuple[str, ...]
 
 
-def specialize(rule, ast, *, destination_size: int, rounds: int = 2):
+def specialize(rule, ast, *, destination_size: int):
     """Materialize one admitted typed-term application through the host.
 
-    ``rounds`` is accepted by the AST inspection path; bounded saturation owns
-    the live round budget and this direct path does not run it.
+    Bounded saturation owns the live saturation-round budget; this direct path
+    only inspects and materializes one admitted application.
     """
 
-    del rounds
     try:
         candidate = native_mba_host_services().capture_ast(
             ast,
@@ -134,7 +148,10 @@ def specialize(rule, ast, *, destination_size: int, rounds: int = 2):
             candidate.term,
             comparison_budget=_MAX_PATTERN_COMPARISONS,
         )
-        if isinstance(match_report, CanonicalMbaRuleCatalogueReport):
+        if isinstance(
+            match_report,
+            (CanonicalMbaRuleCatalogueReport, StructuralRuleCatalogueReport),
+        ):
             if match_report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
                 return None
             applications = match_report.applications
@@ -263,12 +280,10 @@ class EgglogOptimizer(PeepholeSimplificationRule):
     def configure(self, kwargs) -> None:
         config = dict(kwargs or {})
         maturity_names = config.pop("maturities", None)
-        if "rounds" in config and "saturation_rounds" in config:
-            raise ValueError(
-                "EgglogOptimizer rounds and saturation_rounds cannot both be set"
-            )
         if "rounds" in config:
-            config["saturation_rounds"] = config.pop("rounds")
+            raise ValueError(
+                "EgglogOptimizer no longer accepts rounds; use saturation_rounds"
+            )
         families = self._validate_families(
             config.get("families", list(_DEFAULT_FAMILIES))
         )
@@ -426,9 +441,6 @@ class EgglogOptimizer(PeepholeSimplificationRule):
         self.max_rule_firings = budget.max_rule_firings
         self.time_budget_ms = budget.time_budget_ms
         self.require_proof = budget.require_proof
-        # Keep the configured round count available to the AST inspection path;
-        # live extraction uses the bounded budget directly.
-        self.rounds = budget.saturation_rounds
 
     @property
     def _catalogue(self):
@@ -1178,7 +1190,10 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                     )
                 )
                 return None
-            if isinstance(match_result, CanonicalMbaRuleCatalogueReport):
+            if isinstance(
+                match_result,
+                (CanonicalMbaRuleCatalogueReport, StructuralRuleCatalogueReport),
+            ):
                 if match_result.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
                     self._record_extraction_receipt(
                         extraction_receipt_for_profile(
@@ -1188,12 +1203,22 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                     )
                     return None
                 applications = match_result.applications
-                matcher_telemetry = _CanonicalMatchTelemetry.from_catalogue_report(
-                    match_result
-                )
+                if isinstance(match_result, CanonicalMbaRuleCatalogueReport):
+                    matcher_telemetry = _CanonicalMatchTelemetry.from_catalogue_report(
+                        match_result
+                    )
+                else:
+                    matcher_telemetry = _CanonicalMatchTelemetry.from_structural_report(
+                        match_result
+                    )
             else:
                 applications = tuple(match_result)
-                matcher_telemetry = _CanonicalMatchTelemetry(comparisons=0)
+                matcher_telemetry = _CanonicalMatchTelemetry(
+                    comparisons=None,
+                    matcher_backend=None,
+                    lazy_swaps=None,
+                    fixed_binding_count=None,
+                )
             matcher_elapsed_ms = (
                 None
                 if matcher_started is None
@@ -1340,12 +1365,12 @@ class EgglogOptimizer(PeepholeSimplificationRule):
 
         return replace(
             receipt,
-            native_matcher_backend=getattr(match_result, "matcher_backend", "python"),
+            native_matcher_backend=getattr(match_result, "matcher_backend", None),
             native_matcher_comparisons=match_result.comparisons,
             native_matcher_lazy_swaps=getattr(
                 match_result,
                 "lazy_swaps",
-                getattr(match_result, "commuted_branches", 0),
+                getattr(match_result, "commuted_branches", None),
             ),
             native_fixed_binding_count=match_result.fixed_binding_count,
             native_matcher_elapsed_ms=elapsed_ms,
@@ -1690,7 +1715,6 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                 rule,
                 ast,
                 destination_size=int(destination_size),
-                rounds=self.rounds,
             )
             if specialization is None:
                 continue

@@ -215,11 +215,6 @@ class CompositeRewriteSemantics:
         return cls.from_dict(payload)
 
 
-# The short spelling was used in the initial RED fixture and is intentionally
-# retained as a public alias for callers that prefer it.
-ActiveSemantics = CompositeRewriteSemantics
-
-
 @dataclass(frozen=True, slots=True)
 class AlphaTerm:
     """Portable alpha-normalized fixed-width term node."""
@@ -961,7 +956,6 @@ def _materialize_alpha(
 
 __all__ = [
     "ACTIVE_SEMANTICS_SCHEMA_VERSION",
-    "ActiveSemantics",
     "AlphaTerm",
     "CompositeRewriteMalformed",
     "CompositeRewriteSemantics",

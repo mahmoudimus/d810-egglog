@@ -215,9 +215,7 @@ def test_extension_catalogue_matches_core_canonical_oracle() -> None:
 
     constrained_rule = next(rule for rule in rules if rule.constraints)
     assert constrained_rule.source_name == "Add_SpecialConstantRule_1"
-    constrained_extension = CanonicalMbaRuleCatalogue.from_rules(
-        (constrained_rule,)
-    )
+    constrained_extension = CanonicalMbaRuleCatalogue.from_rules((constrained_rule,))
     constrained_core = CompiledPatternCatalogue.from_rules((constrained_rule,))
     x = _leaf("constraint-x")
     satisfying = _node(
@@ -249,17 +247,21 @@ def test_extension_catalogue_matches_core_canonical_oracle() -> None:
             comparison_budget=256,
         )
     )
-    assert project(
-        constrained_extension.canonical_applications(
-            failing,
-            comparison_budget=256,
+    assert (
+        project(
+            constrained_extension.canonical_applications(
+                failing,
+                comparison_budget=256,
+            )
         )
-    ) == project(
-        constrained_core.canonical_applications(
-            failing,
-            comparison_budget=256,
+        == project(
+            constrained_core.canonical_applications(
+                failing,
+                comparison_budget=256,
+            )
         )
-    ) == []
+        == []
+    )
 
     duplicate_extension = CanonicalMbaRuleCatalogue.from_rules((rules[0], rules[0]))
     duplicate_core = CompiledPatternCatalogue.from_rules((rules[0], rules[0]))
@@ -340,7 +342,9 @@ def test_structural_catalogue_remains_extension_owned() -> None:
         width=64,
     )
 
-    applications = catalogue.canonical_applications(source, comparison_budget=256)
+    applications = catalogue.canonical_applications(
+        source, comparison_budget=256
+    ).applications
 
     assert len(applications) == 1
     selected_rule, replacement, _index = applications[0]
@@ -386,10 +390,12 @@ def test_canonicalization_and_function_budget_are_provider_neutral() -> None:
     a, b, c = _leaf("a"), _leaf("b"), _leaf("c")
     left = _node("add", _node("add", a, b), c)
     right = _node("add", a, _node("add", c, b))
-    assert saturation.canonicalize_ac_term(left) == saturation.canonicalize_ac_term(right)
-    assert saturation.canonicalize_ac_term(_node("sub", a, b)) != saturation.canonicalize_ac_term(
-        _node("sub", b, a)
+    assert saturation.canonicalize_ac_term(left) == saturation.canonicalize_ac_term(
+        right
     )
+    assert saturation.canonicalize_ac_term(
+        _node("sub", a, b)
+    ) != saturation.canonicalize_ac_term(_node("sub", b, a))
 
     budget = saturation.EgglogFunctionBudget(1_000)
     assert budget.remaining_ms((0x401000, 101), now=10.0) == 1_000
@@ -412,7 +418,9 @@ def test_run_count_appears_only_after_actual_egglog_invocation(monkeypatch) -> N
     rule = SimpleNamespace(family="test", source_name="identity", aliases=())
     replacement = _leaf("x")
     catalogue = SimpleNamespace(
-        canonical_applications=lambda _term, comparison_budget: ((rule, replacement, 0),)
+        canonical_applications=lambda _term, comparison_budget: (
+            (rule, replacement, 0),
+        )
     )
     rewrite_decl = object()
     run_calls: list[int] = []
@@ -443,7 +451,9 @@ def test_run_count_appears_only_after_actual_egglog_invocation(monkeypatch) -> N
         ),
     )
     monkeypatch.setattr(saturation, "read_egraph_statistics", lambda _egraph: (1, 1))
-    monkeypatch.setattr(saturation, "release_egraph_on_owner_thread", lambda _egraph: True)
+    monkeypatch.setattr(
+        saturation, "release_egraph_on_owner_thread", lambda _egraph: True
+    )
 
     result = saturation.extract_bounded_term(
         raw,
@@ -482,7 +492,9 @@ def test_canonicalization_only_shrinkage_is_not_a_rewrite(monkeypatch) -> None:
             return None
 
         def run(self, _rounds):
-            return SimpleNamespace(num_matches_per_rule={rewrite_decl: 1}, updated=False)
+            return SimpleNamespace(
+                num_matches_per_rule={rewrite_decl: 1}, updated=False
+            )
 
         def extract(self, _expression):
             return (0, 1)
@@ -499,7 +511,9 @@ def test_canonicalization_only_shrinkage_is_not_a_rewrite(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(saturation, "read_egraph_statistics", lambda _egraph: (1, 1))
-    monkeypatch.setattr(saturation, "release_egraph_on_owner_thread", lambda _egraph: True)
+    monkeypatch.setattr(
+        saturation, "release_egraph_on_owner_thread", lambda _egraph: True
+    )
 
     result = saturation.extract_bounded_term(
         raw,

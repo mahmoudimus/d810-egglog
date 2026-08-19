@@ -117,9 +117,7 @@ class CanonicalMbaRuleCatalogue:
         operation = canonical_candidate.operation
         if operation is None:
             return CanonicalMbaRuleCatalogueReport((), 0, 0, 0, (), ())
-        bucket = self.root_buckets.get(
-            (operation, canonical_candidate.width), ()
-        )
+        bucket = self.root_buckets.get((operation, canonical_candidate.width), ())
         if not bucket:
             return CanonicalMbaRuleCatalogueReport((), 0, 0, 0, (), ())
 
@@ -165,7 +163,9 @@ class CanonicalMbaRuleCatalogue:
                 if key in seen:
                     continue
                 seen.add(key)
-                applications.append((pattern.rule, replacement, pattern.declaration_index))
+                applications.append(
+                    (pattern.rule, replacement, pattern.declaration_index)
+                )
         return CanonicalMbaRuleCatalogueReport(
             tuple(applications),
             comparisons,

@@ -450,9 +450,7 @@ def _extraction_result(
             blockers=()
             if profile is None
             else tuple(blocker.value for blocker in profile.blockers),
-            native_profile=(
-                None if profile is None else profile_to_dict(profile)
-            ),
+            native_profile=(None if profile is None else profile_to_dict(profile)),
             skip_reason=skip_reason,
         ),
         selected_provenance=provenance,
@@ -522,9 +520,14 @@ def _canonical_rule_applications(
 
     report = catalogue.canonical_applications(term, comparison_budget=256)
     from .rule_lowering import CanonicalMbaRuleCatalogueReport
+    from .structural_rules import StructuralRuleCatalogueReport
 
-    if isinstance(report, CanonicalMbaRuleCatalogueReport):
-        if report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
+    if isinstance(
+        report, (CanonicalMbaRuleCatalogueReport, StructuralRuleCatalogueReport)
+    ):
+        if isinstance(report, CanonicalMbaRuleCatalogueReport) and (
+            report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET
+        ):
             raise CanonicalPatternComparisonBudgetExceeded(
                 "canonical matcher comparison budget exhausted"
             )
@@ -594,9 +597,7 @@ def _extract_bounded_term(
             profile=profile,
             canonicalizer_version=CANONICALIZER_SCHEMA_VERSION,
             canonical_input_cost=canonical_view.canonical_cost,
-            normalization_steps=tuple(
-                step.kind.value for step in canonical_view.steps
-            ),
+            normalization_steps=tuple(step.kind.value for step in canonical_view.steps),
             execution_path=(
                 "telemetry_only"
                 if budget.time_budget_ms < _MINIMUM_EGGLOG_RUN_BUDGET_MS
@@ -738,9 +739,7 @@ def _extract_bounded_term(
                             aliases=tuple(rule.aliases),
                             expression=target_expression,
                             rule_decl=executable_rewrite.decl,
-                            catalogue_index=rule_indices.get(
-                                id(rule), catalogue_index
-                            ),
+                            catalogue_index=rule_indices.get(id(rule), catalogue_index),
                             derivation_trace=source_trace
                             + (
                                 (

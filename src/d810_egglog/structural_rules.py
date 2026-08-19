@@ -114,6 +114,35 @@ class StructuralRuleCompilationReceipt:
         return tuple(self.to_dict().items())
 
 
+@dataclass(frozen=True, slots=True)
+class StructuralRuleCatalogueReport:
+    """Facts returned by the structural matcher for one candidate.
+
+    The structural matcher currently exposes no counters for its recursive
+    comparisons or bindings.  Those fields therefore remain explicitly
+    unmeasured rather than being fabricated from the number of applications.
+    The backend label still identifies the matcher that produced the report.
+    """
+
+    applications: tuple[tuple[CompiledEgglogStructuralRule, TypedBvTerm, int], ...]
+    comparisons: int | None = None
+    commuted_branches: int | None = None
+    fixed_binding_count: int | None = None
+    matches: tuple[object, ...] = ()
+    stop_reasons: tuple[object, ...] = ()
+    matcher_backend: str = "structural"
+
+    @property
+    def stop_reason(self) -> object | None:
+        return self.stop_reasons[-1] if self.stop_reasons else None
+
+    @property
+    def lazy_swaps(self) -> int | None:
+        """Return the commutation count when the matcher measures it."""
+
+        return self.commuted_branches
+
+
 def _validate_width(width: int) -> None:
     if type(width) is not int or width not in STRUCTURAL_RULE_WIDTHS:
         raise ValueError("width must be one of 8, 16, 32, or 64")
@@ -392,12 +421,10 @@ class StructuralRuleCatalogue:
         candidate: TypedBvTerm,
         *,
         comparison_budget: int = 256,
-    ) -> tuple[tuple[CompiledEgglogStructuralRule, TypedBvTerm, int], ...]:
+    ) -> StructuralRuleCatalogueReport:
         if type(comparison_budget) is not int or comparison_budget <= 0:
             raise ValueError("comparison_budget must be a positive integer")
-        applications: list[
-            tuple[CompiledEgglogStructuralRule, TypedBvTerm, int]
-        ] = []
+        applications: list[tuple[CompiledEgglogStructuralRule, TypedBvTerm, int]] = []
         application_index_by_result: dict[tuple[int, int, str], int] = {}
 
         canonical_candidate = canonicalize_ac_term(candidate)
@@ -431,7 +458,7 @@ class StructuralRuleCatalogue:
                 primary_replacement,
                 primary_declaration_index,
             )
-        return tuple(applications)
+        return StructuralRuleCatalogueReport(tuple(applications))
 
 
 def structural_catalogue_for_rules(
@@ -445,6 +472,7 @@ __all__ = [
     "STRUCTURAL_RULE_FAMILY",
     "STRUCTURAL_RULE_WIDTHS",
     "StructuralRuleCatalogue",
+    "StructuralRuleCatalogueReport",
     "StructuralRuleCompilationReceipt",
     "StructuralRuleStatus",
     "build_rotate_identity",

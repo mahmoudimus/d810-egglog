@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 
 from d810_egglog.composite_rewrite import (
-    ActiveSemantics,
+    CompositeRewriteSemantics,
     EgglogCompositeRewrite,
 )
 from d810.mba.extension_api import TypedBvTerm
@@ -61,8 +61,8 @@ def binary(operation: str, left: TypedBvTerm, right: TypedBvTerm) -> TypedBvTerm
 
 
 @pytest.fixture
-def semantics() -> ActiveSemantics:
-    return ActiveSemantics(
+def semantics() -> CompositeRewriteSemantics:
+    return CompositeRewriteSemantics(
         canonicalizer_version=1,
         catalogue_digest=CATALOGUE_DIGEST,
         profile_digest=PROFILE_DIGEST,
@@ -73,14 +73,14 @@ def semantics() -> ActiveSemantics:
 
 
 def make_rewrite(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
     index: int,
     *,
     profile_digest: str | None = None,
 ) -> EgglogCompositeRewrite:
     active = semantics
     if profile_digest is not None:
-        active = ActiveSemantics(
+        active = CompositeRewriteSemantics(
             canonicalizer_version=semantics.canonicalizer_version,
             catalogue_digest=semantics.catalogue_digest,
             profile_digest=profile_digest,
@@ -104,7 +104,7 @@ def make_rewrite(
 
 
 def test_legacy_wire_payload_matches_fixed_golden(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     assert make_rewrite(semantics, 0).to_json() == GOLDEN_REWRITE_JSON
 
@@ -122,7 +122,7 @@ def cached(
 
 
 @pytest.fixture
-def rewrites(semantics: ActiveSemantics) -> tuple[EgglogCompositeRewrite, ...]:
+def rewrites(semantics: CompositeRewriteSemantics) -> tuple[EgglogCompositeRewrite, ...]:
     return tuple(
         make_rewrite(
             semantics,
@@ -137,7 +137,7 @@ def rewrites(semantics: ActiveSemantics) -> tuple[EgglogCompositeRewrite, ...]:
 
 @pytest.fixture
 def same_bucket_rewrites(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> tuple[EgglogCompositeRewrite, ...]:
     return (make_rewrite(semantics, 0), make_rewrite(semantics, 1))
 
@@ -228,7 +228,7 @@ def test_lookup_advances_payload_manifest_and_byte_accounting_together(
 
 def test_cache_updates_lru_before_entry_eviction(
     fake_store: dict[str, object],
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
     rewrites: tuple[EgglogCompositeRewrite, ...],
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
@@ -460,7 +460,7 @@ def test_sequence_mismatch_removes_only_that_entry(
 
 def test_stale_semantic_fingerprint_is_an_exact_miss(
     fake_store: dict[str, object],
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
@@ -560,7 +560,7 @@ class FailingReadDeleteStore(DictPersistence):
 
 
 def test_manifest_read_failure_clears_manifest_and_entries(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
@@ -576,7 +576,7 @@ def test_manifest_read_failure_clears_manifest_and_entries(
 
 
 def test_manifest_read_failure_tolerates_delete_failure_after_attempt(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
@@ -593,7 +593,7 @@ def test_manifest_read_failure_tolerates_delete_failure_after_attempt(
 
 
 def test_cache_write_failure_does_not_leave_a_partial_entry(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
@@ -608,7 +608,7 @@ def test_cache_write_failure_does_not_leave_a_partial_entry(
 
 
 def test_cache_payload_write_failure_restores_previous_state(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
@@ -627,7 +627,7 @@ def test_cache_payload_write_failure_restores_previous_state(
 
 
 def test_cache_lookup_payload_write_failure_returns_previous_state(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 

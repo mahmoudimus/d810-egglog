@@ -106,10 +106,13 @@ def test_cache_has_no_legacy_get_surface() -> None:
 
 
 def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() -> None:
-    from d810_egglog.composite_rewrite import ActiveSemantics, EgglogCompositeRewrite
+    from d810_egglog.composite_rewrite import (
+        CompositeRewriteSemantics,
+        EgglogCompositeRewrite,
+    )
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
-    semantics = ActiveSemantics(
+    semantics = CompositeRewriteSemantics(
         canonicalizer_version=1,
         catalogue_digest="a" * 64,
         profile_digest="b" * 64,
@@ -176,7 +179,7 @@ def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() ->
     assert replacement.children[1] is fresh_leaf
 
     drifted = (
-        ActiveSemantics(
+        CompositeRewriteSemantics(
             canonicalizer_version=2,
             catalogue_digest=semantics.catalogue_digest,
             profile_digest=semantics.profile_digest,
@@ -184,7 +187,7 @@ def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() ->
             proof_mode=semantics.proof_mode,
             active_rule_names=semantics.active_rule_names,
         ),
-        ActiveSemantics(
+        CompositeRewriteSemantics(
             canonicalizer_version=semantics.canonicalizer_version,
             catalogue_digest="c" * 64,
             profile_digest=semantics.profile_digest,
@@ -192,7 +195,7 @@ def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() ->
             proof_mode=semantics.proof_mode,
             active_rule_names=semantics.active_rule_names,
         ),
-        ActiveSemantics(
+        CompositeRewriteSemantics(
             canonicalizer_version=semantics.canonicalizer_version,
             catalogue_digest=semantics.catalogue_digest,
             profile_digest=semantics.profile_digest,
@@ -200,7 +203,7 @@ def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() ->
             proof_mode=semantics.proof_mode,
             active_rule_names=semantics.active_rule_names,
         ),
-        ActiveSemantics(
+        CompositeRewriteSemantics(
             canonicalizer_version=semantics.canonicalizer_version,
             catalogue_digest=semantics.catalogue_digest,
             profile_digest=semantics.profile_digest,
@@ -208,7 +211,7 @@ def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() ->
             proof_mode="legacy",
             active_rule_names=semantics.active_rule_names,
         ),
-        ActiveSemantics(
+        CompositeRewriteSemantics(
             canonicalizer_version=semantics.canonicalizer_version,
             catalogue_digest=semantics.catalogue_digest,
             profile_digest=semantics.profile_digest,

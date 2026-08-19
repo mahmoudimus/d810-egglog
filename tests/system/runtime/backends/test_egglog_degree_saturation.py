@@ -375,6 +375,23 @@ class TestCertifiedFixedRotateMaterialization:
         _mba.verify(True)
 
 
+def test_structural_matcher_receipt_preserves_unmeasured_telemetry():
+    from d810_egglog.rules.egglog_optimizer import EgglogOptimizer
+    from d810_egglog.structural_rules import StructuralRuleCatalogueReport
+
+    receipt = EgraphExtractionReceipt()
+    enriched = EgglogOptimizer._with_native_match_telemetry(
+        receipt,
+        StructuralRuleCatalogueReport(()),
+        elapsed_ms=0.0,
+    )
+
+    assert enriched.native_matcher_backend == "structural"
+    assert enriched.native_matcher_comparisons is None
+    assert enriched.native_matcher_lazy_swaps is None
+    assert enriched.native_fixed_binding_count is None
+
+
 class TestCertifiedFixedRotateNative:
     binary_name = "libobfuscated.dll"
 
@@ -1198,10 +1215,12 @@ class TestRealNativeLearnedReplay:
                         instruction = instruction.next
                         continue
                     try:
-                        applications = handler._native_pattern_catalogue.canonical_applications(
-                            candidate.term,
-                            comparison_budget=256,
-                        ).applications
+                        applications = (
+                            handler._native_pattern_catalogue.canonical_applications(
+                                candidate.term,
+                                comparison_budget=256,
+                            ).applications
+                        )
                     except Exception:
                         instruction = instruction.next
                         continue

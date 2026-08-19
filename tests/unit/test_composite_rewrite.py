@@ -10,7 +10,6 @@ from d810_egglog.composite_rewrite import (
     ACTIVE_SEMANTICS_SCHEMA_VERSION,
     MAX_INPUT_LEAF_SLOTS,
     MAX_SERIALIZED_ENTRY_BYTES,
-    ActiveSemantics,
     AlphaTerm,
     CompositeRewriteMalformed,
     CompositeRewriteSemantics,
@@ -41,8 +40,8 @@ def binary(operation: str, left: TypedBvTerm, right: TypedBvTerm) -> TypedBvTerm
 
 
 @pytest.fixture
-def semantics() -> ActiveSemantics:
-    return ActiveSemantics(
+def semantics() -> CompositeRewriteSemantics:
+    return CompositeRewriteSemantics(
         canonicalizer_version=1,
         catalogue_digest=CATALOGUE_DIGEST,
         profile_digest=PROFILE_DIGEST,
@@ -57,7 +56,7 @@ def semantics() -> ActiveSemantics:
 
 
 @pytest.fixture
-def valid_rewrite(semantics: ActiveSemantics) -> EgglogCompositeRewrite:
+def valid_rewrite(semantics: CompositeRewriteSemantics) -> EgglogCompositeRewrite:
     x = leaf("x")
     # Keep the source term strictly more expensive while exercising a repeated
     # source leaf and a literal in the output.
@@ -82,7 +81,7 @@ def test_composite_semantics_has_no_legacy_rules_spelling() -> None:
     assert not hasattr(CompositeRewriteSemantics, "rules")
 
 
-def test_composite_rebinds_current_live_leaf_shape(semantics: ActiveSemantics) -> None:
+def test_composite_rebinds_current_live_leaf_shape(semantics: CompositeRewriteSemantics) -> None:
     x = leaf("x")
     source = binary("add", binary("add", x, x), x)
     output = binary("mul", const(3), x)
@@ -104,7 +103,7 @@ def test_composite_rebinds_current_live_leaf_shape(semantics: ActiveSemantics) -
 
 def test_composite_rejects_changed_alias_shape(
     valid_rewrite: EgglogCompositeRewrite,
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     y = leaf("y")
     z = leaf("z")
@@ -116,7 +115,7 @@ def test_composite_rejects_changed_alias_shape(
 
 def test_match_is_transactional_and_deterministic(
     valid_rewrite: EgglogCompositeRewrite,
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     y = leaf("y")
     candidate = binary("add", binary("add", y, y), y)
@@ -167,7 +166,7 @@ def test_serialized_schema_is_exact_and_json_safe(
 
 
 def test_fresh_egraph_run_count_is_immutable_and_round_trips(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     x = leaf("x")
     rewrite = EgglogCompositeRewrite.from_extraction(
@@ -232,7 +231,7 @@ def _payload_mutation(
 )
 def test_composite_payload_validation_fails_closed(
     valid_rewrite: EgglogCompositeRewrite,
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
     mutation: str,
 ) -> None:
     payload = _payload_mutation(valid_rewrite, mutation)
@@ -249,9 +248,9 @@ def test_from_json_rejects_malformed_json(
 
 def test_stale_semantics_are_rejected(
     valid_rewrite: EgglogCompositeRewrite,
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
-    stale = ActiveSemantics(
+    stale = CompositeRewriteSemantics(
         canonicalizer_version=semantics.canonicalizer_version,
         catalogue_digest="c" * 64,
         profile_digest=semantics.profile_digest,
@@ -263,7 +262,7 @@ def test_stale_semantics_are_rejected(
         EgglogCompositeRewrite.from_json(valid_rewrite.to_json(), semantics=stale)
 
 
-def test_missing_derivation_rule_is_rejected(semantics: ActiveSemantics) -> None:
+def test_missing_derivation_rule_is_rejected(semantics: CompositeRewriteSemantics) -> None:
     x = leaf("x")
     with pytest.raises(CompositeRewriteMalformed):
         EgglogCompositeRewrite.from_extraction(
@@ -274,7 +273,7 @@ def test_missing_derivation_rule_is_rejected(semantics: ActiveSemantics) -> None
         )
 
 
-def test_too_many_input_leaves_is_rejected(semantics: ActiveSemantics) -> None:
+def test_too_many_input_leaves_is_rejected(semantics: CompositeRewriteSemantics) -> None:
     leaves = [leaf(str(index)) for index in range(MAX_INPUT_LEAF_SLOTS + 1)]
     source = leaves[0]
     for item in leaves[1:]:
@@ -289,7 +288,7 @@ def test_too_many_input_leaves_is_rejected(semantics: ActiveSemantics) -> None:
 
 
 def test_native_shaped_leaf_key_is_local_only_and_rebinds(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     x = leaf("x", kind="mop")
     learned = EgglogCompositeRewrite.from_extraction(
@@ -310,7 +309,7 @@ def test_native_shaped_leaf_key_is_local_only_and_rebinds(
 
 
 def test_supported_fixed_shift_preserves_literal_count(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     x = leaf("x")
     source = binary(
@@ -338,7 +337,7 @@ def test_supported_fixed_shift_preserves_literal_count(
 
 
 def test_widths_are_limited_to_fixed_portable_widths(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     x = leaf("x", width=24)
     with pytest.raises(CompositeRewriteMalformed):
@@ -358,7 +357,7 @@ def test_serialized_entry_has_hard_size_bound(
 
 def test_materialize_requires_current_typed_bindings(
     valid_rewrite: EgglogCompositeRewrite,
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     with pytest.raises(CompositeRewriteMalformed):
         valid_rewrite.materialize({0: object()}, semantics=semantics)
@@ -366,14 +365,14 @@ def test_materialize_requires_current_typed_bindings(
         valid_rewrite.materialize({}, semantics=semantics)
 
 
-def test_semantics_descriptor_is_json_safe(semantics: ActiveSemantics) -> None:
+def test_semantics_descriptor_is_json_safe(semantics: CompositeRewriteSemantics) -> None:
     encoded = semantics.to_json()
     assert json.loads(encoded) == semantics.to_dict()
-    assert ActiveSemantics.from_json(encoded) == semantics
+    assert CompositeRewriteSemantics.from_json(encoded) == semantics
 
 
 def test_semantics_requires_exact_frozenset_rule_pairs() -> None:
-    descriptor = ActiveSemantics(
+    descriptor = CompositeRewriteSemantics(
         canonicalizer_version=1,
         catalogue_digest=CATALOGUE_DIGEST,
         profile_digest=PROFILE_DIGEST,
@@ -384,7 +383,7 @@ def test_semantics_requires_exact_frozenset_rule_pairs() -> None:
     assert descriptor.has_rule("add", "R")
     assert not descriptor.has_rule("xor", "R")
     with pytest.raises(ValueError):
-        ActiveSemantics(
+        CompositeRewriteSemantics(
             canonicalizer_version=1,
             catalogue_digest=CATALOGUE_DIGEST,
             profile_digest=PROFILE_DIGEST,
@@ -395,7 +394,7 @@ def test_semantics_requires_exact_frozenset_rule_pairs() -> None:
 
 
 def test_trace_requires_exact_rule_family_and_source(
-    semantics: ActiveSemantics,
+    semantics: CompositeRewriteSemantics,
 ) -> None:
     x = leaf("x")
     with pytest.raises(CompositeRewriteMalformed):
