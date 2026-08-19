@@ -85,6 +85,7 @@ def test_extension_wheel_metadata_record_resources_and_installation(tmp_path: Pa
         names = set(archive.namelist())
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = archive.read(metadata_name).decode("utf-8")
+        assert "Requires-Python: >=3.11" in metadata
         assert "Requires-Dist: d810-ng>=1.0.0b2" in metadata
         assert "Requires-Dist: egglog==13.2.0" in metadata
         assert "Requires-Dist: cloudpickle" not in metadata
