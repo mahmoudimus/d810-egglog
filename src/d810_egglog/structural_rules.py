@@ -15,15 +15,13 @@ import functools
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 
+import d810.mba.extension_api as _extension_api
 from d810.mba.extension_api import (
     CanonicalPatternComparisonBudgetExceeded,
-    enroll_structural_rule,
-    is_enrolled_structural_rule,
     canonicalize_ac_term,
     fixed_shift_term,
     term_fingerprint,
     TypedBvTerm,
-    prove_typed_term_equivalence as _prove_typed_term_equivalence,
 )
 
 
@@ -166,18 +164,18 @@ def prove_typed_term_equivalence(
 ) -> bool:
     """Run the shared universal fixed-width typed Z3 gate."""
 
-    return _prove_typed_term_equivalence(pattern, replacement)
+    return _extension_api.prove_typed_term_equivalence(pattern, replacement)
 
 
 def _enroll(rule: CompiledEgglogStructuralRule) -> CompiledEgglogStructuralRule:
-    enroll_structural_rule(rule)
+    _extension_api.enroll_structural_rule(rule)
     return rule
 
 
 def is_admitted_structural_rule(rule: object) -> bool:
     return (
         type(rule) is CompiledEgglogStructuralRule
-        and is_enrolled_structural_rule(rule)
+        and _extension_api.is_enrolled_structural_rule(rule)
         and rule.proof_verdict is True
     )
 
@@ -193,22 +191,22 @@ def compile_fixed_rotate_rules(
     for count in range(1, width):
         source_name = f"{direction}_{width}_{count}"
         pattern, replacement = build_rotate_identity(width, direction, count)
+        rule = CompiledEgglogStructuralRule(
+            source_name=source_name,
+            width=width,
+            direction=direction,
+            count=count,
+            pattern=pattern,
+            replacement=replacement,
+            proof_verdict=True,
+        )
         try:
-            verdict = prove_typed_term_equivalence(pattern, replacement)
-        except (ImportError, OSError):
+            _enroll(rule)
+        except (ImportError, OSError, TypeError, ValueError):
             verdict = False
+        else:
+            verdict = True
         if verdict is True:
-            rule = _enroll(
-                CompiledEgglogStructuralRule(
-                    source_name=source_name,
-                    width=width,
-                    direction=direction,
-                    count=count,
-                    pattern=pattern,
-                    replacement=replacement,
-                    proof_verdict=True,
-                )
-            )
             receipts.append(
                 StructuralRuleCompilationReceipt(
                     source_name=source_name,

@@ -50,31 +50,21 @@ def test_fixed_rotate_structural_receipts_are_frozen_and_wire_stable():
 
 
 def test_failed_fixed_rotate_certification_omits_only_that_rule(monkeypatch):
+    from d810.mba import extension_api
     from d810_egglog import structural_rules as egglog_structural_rules
     from d810_egglog.structural_rules import StructuralRuleStatus
 
-    original = egglog_structural_rules.prove_typed_term_equivalence
+    original = extension_api.enroll_structural_rule
 
-    def reject_count_three(pattern, replacement):
-        return not (
-            replacement.operation == "rol" and replacement.shift_count == 3
-        )
+    def reject_count_three(rule):
+        if rule.count == 3:
+            raise ValueError("test proof failure")
+        return original(rule)
 
-    monkeypatch.setattr(
-        egglog_structural_rules,
-        "prove_typed_term_equivalence",
-        reject_count_three,
+    monkeypatch.setattr(extension_api, "enroll_structural_rule", reject_count_three)
+    receipts = egglog_structural_rules.compile_fixed_rotate_rules(
+        width=8, direction="rol"
     )
-    try:
-        receipts = egglog_structural_rules.compile_fixed_rotate_rules(
-            width=8, direction="rol"
-        )
-    finally:
-        monkeypatch.setattr(
-            egglog_structural_rules,
-            "prove_typed_term_equivalence",
-            original,
-        )
 
     rejected = receipts[2]
     assert rejected.count == 3
@@ -82,6 +72,48 @@ def test_failed_fixed_rotate_certification_omits_only_that_rule(monkeypatch):
     assert rejected.compiled_rule is None
     assert rejected.refusal_reason == "typed_z3_proof_failed"
     assert sum(item.compiled_rule is not None for item in receipts) == 6
+
+
+def test_fixed_rotate_compiles_once_per_rule_through_public_enrollment(monkeypatch):
+    from d810.mba import extension_api
+    from d810_egglog import structural_rules as egglog_structural_rules
+
+    original_enroll = extension_api.enroll_structural_rule
+    original_proof = extension_api.prove_typed_term_equivalence
+    enrollment_calls: list[str] = []
+    api_proof_calls = 0
+    provider_proof_calls = 0
+
+    def enroll_once(rule):
+        enrollment_calls.append(rule.source_name)
+        return original_enroll(rule)
+
+    def count_api_proof(pattern, replacement):
+        nonlocal api_proof_calls
+        api_proof_calls += 1
+        return original_proof(pattern, replacement)
+
+    def count_provider_proof(pattern, replacement):
+        nonlocal provider_proof_calls
+        provider_proof_calls += 1
+        return original_proof(pattern, replacement)
+
+    monkeypatch.setattr(extension_api, "enroll_structural_rule", enroll_once)
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", count_api_proof)
+    monkeypatch.setattr(
+        egglog_structural_rules,
+        "_prove_typed_term_equivalence",
+        count_provider_proof,
+        raising=False,
+    )
+    receipts = egglog_structural_rules.compile_fixed_rotate_rules(
+        width=8, direction="rol"
+    )
+
+    assert len(receipts) == 7
+    assert enrollment_calls == [f"rol_8_{count}" for count in range(1, 8)]
+    assert api_proof_calls == 7
+    assert provider_proof_calls == 0
 
 
 @pytest.mark.parametrize("direction", ["rol", "ror"])
@@ -220,6 +252,36 @@ def test_snapshot_rejects_forged_structural_rule_with_imported_token():
         forged_snapshot.structural_rule_digest
         == unavailable_snapshot.structural_rule_digest
     )
+
+
+def test_public_enrollment_rejects_forged_structural_equivalence():
+    from d810.mba.extension_api import (
+        enroll_structural_rule,
+        is_enrolled_structural_rule,
+    )
+    from d810_egglog.structural_rules import (
+        CompiledEgglogStructuralRule,
+        build_rotate_identity,
+        structural_catalogue_for_rules,
+    )
+
+    pattern, _replacement = build_rotate_identity(8, "rol", 1)
+    x = pattern.children[0].children[0]
+    forged = CompiledEgglogStructuralRule(
+        source_name="forged-rol-8-1",
+        width=8,
+        direction="rol",
+        count=1,
+        pattern=pattern,
+        replacement=fixed_shift_term("ror", 8, x, 1),
+        proof_verdict=True,
+    )
+
+    with pytest.raises(ValueError, match="proof"):
+        enroll_structural_rule(forged)
+    assert not is_enrolled_structural_rule(forged)
+    with pytest.raises(ValueError, match="admitted"):
+        structural_catalogue_for_rules((forged,))
 
 
 def test_fixed_rotate_inventory_reuses_certification_across_live_requests(monkeypatch):

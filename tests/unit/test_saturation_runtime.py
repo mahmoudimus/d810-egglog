@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -52,6 +57,88 @@ def _fixed_shift(operation: str, value: TypedBvTerm, count: int) -> TypedBvTerm:
         children=(value,),
         shift_count=count,
     )
+
+
+def test_extract_bounded_candidate_classifies_typed_host_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from d810.mba import extension_api
+
+    unsupported = getattr(extension_api, "NativeMbaUnsupportedCandidate", None)
+    assert unsupported is not None
+
+    class Host:
+        def capture_ast(self, _candidate, *, destination_size):
+            raise unsupported("unsupported lowering")
+
+    monkeypatch.setattr(saturation, "_native_host_services", lambda: Host())
+    result = saturation.extract_bounded_candidate(
+        object(),
+        (),
+        saturation.EgglogExtractionBudget(),
+        4,
+    )
+
+    assert result.receipt.skip_reason is EgraphSkipReason.UNSUPPORTED_WIDTH_SEMANTICS
+
+
+def test_extract_bounded_candidate_reports_unexpected_host_errors_as_internal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Host:
+        def capture_ast(self, _candidate, *, destination_size):
+            raise RuntimeError("unexpected host failure")
+
+    monkeypatch.setattr(saturation, "_native_host_services", lambda: Host())
+    result = saturation.extract_bounded_candidate(
+        object(),
+        (),
+        saturation.EgglogExtractionBudget(),
+        4,
+    )
+
+    assert result.receipt.skip_reason is EgraphSkipReason.INTERNAL_ERROR
+
+
+def test_saturation_rejects_stale_typed_term_after_core_reload() -> None:
+    extension_root = Path(__file__).parents[2]
+    core_root = extension_root.parent / "egglog-extension-extraction"
+    script = textwrap.dedent(
+        """
+        import importlib
+
+        from d810.mba import extension_api, typed_term
+        from d810_egglog import saturation
+
+        importlib.reload(typed_term)
+        importlib.reload(saturation)
+        assert extension_api.typed_term_identity_is_current() is False
+        fresh = typed_term.TypedBvTerm(None, 32, value=0)
+        try:
+            saturation.extract_bounded_term(
+                fresh,
+                (),
+                saturation.EgglogExtractionBudget(),
+                destination_size=4,
+            )
+        except extension_api.PortableContractReloaded:
+            pass
+        else:
+            raise AssertionError("stale typed terms were not rejected explicitly")
+        """
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(
+        (str(core_root / "src"), str(extension_root / "src"))
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_saturation_uses_the_portable_receipt_contract() -> None:

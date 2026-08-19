@@ -21,7 +21,9 @@ from d810.mba.extension_api import (
     CanonicalPatternComparisonBudgetExceeded,
     EgraphExtractionReceipt,
     EgraphSkipReason,
+    NativeMbaUnsupportedCandidate,
     TypedBvTerm,
+    assert_current_typed_term_type,
     canonicalize_ac_term,
     canonicalize_mba_term,
     leaf_key_fingerprint,
@@ -40,10 +42,6 @@ from .statistics import (
 # Keep the historical private call-site name internal to this moved runtime;
 # the public contract remains ``term_cost`` from the portable API.
 _term_cost = term_cost
-
-
-# One-release compatibility re-export. Keep this identity assertion close to
-# the import so plugin hot reloads cannot silently split the term type.
 
 
 # Public capability contract.  This spike explores rewrites of the candidate
@@ -1021,6 +1019,7 @@ def extract_bounded_term(
     selected ``replacement_term`` through the existing native mutation gate.
     """
 
+    assert_current_typed_term_type(TypedBvTerm)
     return _extract_bounded_term(
         term,
         rules,
@@ -1048,10 +1047,19 @@ def extract_bounded_candidate(
 ) -> EgglogExtractionResult:
     """Compatibility AST entry point for callers not using native preflight."""
 
+    assert_current_typed_term_type(TypedBvTerm)
     try:
         native_candidate = _native_host_services().capture_ast(
             candidate_ast,
             destination_size=destination_size,
+        )
+    except NativeMbaUnsupportedCandidate:
+        return _build_extraction_result(
+            started=_monotonic(),
+            input_cost=None,
+            execution_path="telemetry_only",
+            cache_status="disabled",
+            skip_reason=EgraphSkipReason.UNSUPPORTED_WIDTH_SEMANTICS,
         )
     except Exception:
         return _build_extraction_result(
@@ -1059,7 +1067,7 @@ def extract_bounded_candidate(
             input_cost=None,
             execution_path="telemetry_only",
             cache_status="disabled",
-            skip_reason=EgraphSkipReason.UNSUPPORTED_WIDTH_SEMANTICS,
+            skip_reason=EgraphSkipReason.INTERNAL_ERROR,
         )
     return _extract_bounded_term(
         native_candidate.raw_term,
