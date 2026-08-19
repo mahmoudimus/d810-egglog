@@ -28,7 +28,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-d810_egglog = ["profiles/*.json"]
+d810_egglog = ["profiles/*.json", "baselines/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]

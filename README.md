@@ -38,4 +38,10 @@ copy step is deliberate: it makes the selected profile and its provenance
 visible in the ordinary config-v2 project workflow. All packaged profiles use
 the hard-cut `mba-egraph` pass; the old `mba-egglog` spelling is not accepted.
 
+The provider-owned performance baseline is also a package resource at
+`d810_egglog.baselines/egglog_mba_performance_baseline.json`. It is kept
+separate from project-manager profiles and can be read with
+`files("d810_egglog.baselines")` when running the extension's performance
+checks.
+
 Core d810-ng remains usable without this optional distribution.

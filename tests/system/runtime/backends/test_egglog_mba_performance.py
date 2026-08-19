@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from importlib.metadata import version
+from importlib.resources import files
 import os
 import statistics
 import time
@@ -40,7 +41,11 @@ from tests.system.e2e.egglog_native_profile import (  # noqa: E402
 
 
 _CLOSED_FAMILIES = ("add", "and", "bnot", "mul", "neg", "or", "sub", "xor")
-_BASELINE_PATH = Path(__file__).with_name("egglog_mba_performance_baseline.json")
+_BASELINE_PATH = Path(
+    files("d810_egglog.baselines").joinpath(
+        "egglog_mba_performance_baseline.json"
+    )
+)
 _CANDIDATE_CORPUS = (
     ("add", "Add_HackersDelightRule_2"),
     ("add", "Add_HackersDelightRule_3"),
