@@ -39,6 +39,25 @@ def test_ci_runner_defaults_to_the_cli_image() -> None:
     assert 'IMAGE="${D810_DOCKER_IMAGE:-idapro-9.4-speedups:cli}"' in source
 
 
+def test_ci_runner_requires_core_worktree_and_uses_extension_mount_paths() -> None:
+    source = CI_RUNNER.read_text(encoding="utf-8")
+
+    assert 'WORKTREE_NAME="${D810_CORE_WORKTREE_NAME:-' not in source
+    assert (
+        "D810_CORE_WORKTREE_NAME must name the core worktree used by "
+        "run_system_tests_docker.sh (-w)"
+    ) in source
+    moved_tests = (
+        "/opt/d810-egglog/tests/system/e2e/test_egglog_add_spike.py",
+        "/opt/d810-egglog/tests/system/e2e/test_egglog_mba_families_spike.py",
+        "/opt/d810-egglog/tests/system/e2e/test_egglog_mba_compiler_shape_profile.py",
+        "/opt/d810-egglog/tests/system/runtime/backends/test_egglog_mba_performance.py",
+    )
+    for path in moved_tests:
+        assert path in source
+    assert "\n    tests/system/" not in source
+
+
 def test_ci_runner_profiles_real_idb_only_when_explicitly_requested() -> None:
     source = CI_RUNNER.read_text(encoding="utf-8")
 
@@ -47,6 +66,25 @@ def test_ci_runner_profiles_real_idb_only_when_explicitly_requested() -> None:
     assert 'D810_CYTHON_PROFILE="$CYTHON_TRACE"' in source
     assert "for corpus in egglog-add-spike egglog-mba-families-spike" in source
     assert '"$PROFILE_HOST_DIR/$corpus.prof"' in source
+
+
+def test_ci_runner_fails_closed_without_an_explicit_core_worktree(
+    tmp_path: Path,
+) -> None:
+    environment = os.environ.copy()
+    environment.pop("D810_CORE_WORKTREE_NAME", None)
+    environment["D810_REPO_ROOT"] = str(tmp_path)
+    result = subprocess.run(
+        ["bash", str(CI_RUNNER)],
+        check=False,
+        capture_output=True,
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "D810_CORE_WORKTREE_NAME must name the core worktree" in result.stderr
 
 
 def _real_attempts() -> list[dict[str, object]]:
@@ -208,6 +246,7 @@ fi
         "D810_FAKE_RUNNER_LOG": str(runner_log),
         "D810_DOCKER_IMAGE": "idapro-9.4-speedups:cli",
         "D810_REPO_ROOT": str(tmp_path),
+        "D810_CORE_WORKTREE_NAME": "core-worktree",
         "D810_FAKE_NATIVE": json.dumps(python_rows[0]),
         "D810_FAKE_PYTHON_REAL": json.dumps(python_rows[1]),
         "D810_FAKE_CYTHON_REAL": json.dumps(cython_rows[1]),
@@ -227,10 +266,10 @@ fi
     assert result.returncode == 0, result.stderr
     assert "Wrote Egglog native performance receipts to" in result.stdout
     assert runner_log.read_text(encoding="utf-8").splitlines() == [
-        "1|test -w egglog-extension-extraction -- tests/system/e2e/test_egglog_add_spike.py tests/system/e2e/test_egglog_mba_families_spike.py tests/system/e2e/test_egglog_mba_compiler_shape_profile.py -q -s",
-        "1|test -w egglog-extension-extraction -- tests/system/runtime/backends/test_egglog_mba_performance.py -q -m profile -s",
-        "0|test -w egglog-extension-extraction -- tests/system/e2e/test_egglog_add_spike.py tests/system/e2e/test_egglog_mba_families_spike.py tests/system/e2e/test_egglog_mba_compiler_shape_profile.py -q -s",
-        "0|test -w egglog-extension-extraction -- tests/system/runtime/backends/test_egglog_mba_performance.py -q -m profile -s",
+        "1|test -w core-worktree -- /opt/d810-egglog/tests/system/e2e/test_egglog_add_spike.py /opt/d810-egglog/tests/system/e2e/test_egglog_mba_families_spike.py /opt/d810-egglog/tests/system/e2e/test_egglog_mba_compiler_shape_profile.py -q -s",
+        "1|test -w core-worktree -- /opt/d810-egglog/tests/system/runtime/backends/test_egglog_mba_performance.py -q -m profile -s",
+        "0|test -w core-worktree -- /opt/d810-egglog/tests/system/e2e/test_egglog_add_spike.py /opt/d810-egglog/tests/system/e2e/test_egglog_mba_families_spike.py /opt/d810-egglog/tests/system/e2e/test_egglog_mba_compiler_shape_profile.py -q -s",
+        "0|test -w core-worktree -- /opt/d810-egglog/tests/system/runtime/backends/test_egglog_mba_performance.py -q -m profile -s",
     ]
     for mode in ("python", "cython"):
         receipts = [
@@ -635,6 +674,7 @@ def test_ci_runner_removes_stale_comparison_before_a_failed_run(tmp_path: Path) 
         | {
             "D810_EGGLOG_PERF_ARTIFACT_DIR": str(artifact_dir),
             "D810_REPO_ROOT": str(tmp_path),
+            "D810_CORE_WORKTREE_NAME": "core-worktree",
         },
         text=True,
     )

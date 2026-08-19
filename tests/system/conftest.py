@@ -21,11 +21,16 @@ from d810.core.config import ProjectConfiguration
 # import path, and pytest rejects registering a plugin under two names.
 _CORE_ROOT = Path("/work")
 if not (_CORE_ROOT / "tests/system/conftest.py").is_file():
-    _CORE_ROOT = Path(
-        os.environ.get(
-            "D810_EGGLOG_CORE_ROOT",
-            Path(__file__).resolve().parents[3].parent / "egglog-extension-extraction",
+    configured_core_root = os.environ.get("D810_EGGLOG_CORE_ROOT")
+    if not configured_core_root:
+        raise RuntimeError(
+            "D810_EGGLOG_CORE_ROOT must point to the core checkout when /work "
+            "is unavailable"
         )
+    _CORE_ROOT = Path(configured_core_root).expanduser().resolve()
+if not (_CORE_ROOT / "tests/system/conftest.py").is_file():
+    raise RuntimeError(
+        f"D810_EGGLOG_CORE_ROOT does not contain tests/system/conftest.py: {_CORE_ROOT}"
     )
 
 

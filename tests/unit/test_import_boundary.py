@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import configparser
+import importlib
 import os
 import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 EXTENSION_ROOT = Path(__file__).resolve().parents[2]
@@ -27,13 +30,45 @@ def _production_contract() -> configparser.SectionProxy:
 
 def _core_source_root() -> Path:
     configured = os.environ.get("D810_EGGLOG_CORE_SRC")
-    core_src = (
-        Path(configured)
-        if configured
-        else EXTENSION_ROOT.parent / "egglog-extension-extraction" / "src"
-    )
+    if configured:
+        core_src = Path(configured).expanduser().resolve()
+    else:
+        try:
+            d810 = importlib.import_module("d810")
+        except ImportError as exc:
+            raise AssertionError(
+                "D810_EGGLOG_CORE_SRC must point to the core src directory "
+                "when d810 is not importable"
+            ) from exc
+        package_file = getattr(d810, "__file__", None)
+        if package_file is None:
+            raise AssertionError(
+                "D810_EGGLOG_CORE_SRC must point to the core src directory "
+                "when d810 has no filesystem package"
+            )
+        core_src = Path(package_file).resolve().parent.parent
     assert core_src.is_dir(), f"core source root does not exist: {core_src}"
+    assert (core_src / "d810").is_dir(), f"not a d810 source root: {core_src}"
     return core_src
+
+
+def test_core_source_resolution_fails_closed_without_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("D810_EGGLOG_CORE_SRC", str(EXTENSION_ROOT / "missing-core-src"))
+    with pytest.raises(AssertionError, match="core source root does not exist"):
+        _core_source_root()
+
+
+def test_system_bootstrap_core_resolution_is_explicit() -> None:
+    for relative_path in (
+        Path("tests/system/conftest.py"),
+        Path("tests/system/e2e/extension_paths.py"),
+    ):
+        source = (EXTENSION_ROOT / relative_path).read_text(encoding="utf-8")
+        assert "D810_EGGLOG_CORE_ROOT" in source
+        assert "if not configured_core_root" in source
+        assert "raise RuntimeError" in source
 
 
 def _write_probe_project(

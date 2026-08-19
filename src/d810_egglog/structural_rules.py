@@ -15,11 +15,14 @@ import functools
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 
-import d810.mba.extension_api as _extension_api
 from d810.mba.extension_api import (
     CanonicalPatternComparisonBudgetExceeded,
     canonicalize_ac_term,
+    enroll_structural_rule,
     fixed_shift_term,
+    is_enrolled_structural_rule,
+    prove_typed_term_equivalence as _prove_typed_term_equivalence,
+    structural_rule_semantic_fingerprint,
     term_fingerprint,
     TypedBvTerm,
 )
@@ -57,7 +60,7 @@ class CompiledEgglogStructuralRule:
 
     @property
     def semantic_fingerprint(self) -> str:
-        return _extension_api.structural_rule_semantic_fingerprint(self)
+        return structural_rule_semantic_fingerprint(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,18 +186,18 @@ def prove_typed_term_equivalence(
 ) -> bool:
     """Run the shared universal fixed-width typed Z3 gate."""
 
-    return _extension_api.prove_typed_term_equivalence(pattern, replacement)
+    return _prove_typed_term_equivalence(pattern, replacement)
 
 
 def _enroll(rule: CompiledEgglogStructuralRule) -> CompiledEgglogStructuralRule:
-    _extension_api.enroll_structural_rule(rule)
+    enroll_structural_rule(rule)
     return rule
 
 
 def is_admitted_structural_rule(rule: object) -> bool:
     return (
         type(rule) is CompiledEgglogStructuralRule
-        and _extension_api.is_enrolled_structural_rule(rule)
+        and is_enrolled_structural_rule(rule)
         and rule.proof_verdict is True
     )
 

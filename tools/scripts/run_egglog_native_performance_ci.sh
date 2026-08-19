@@ -14,7 +14,11 @@ else
   exit 1
 fi
 RUNNER="$CORE_ROOT/tools/scripts/run_system_tests_docker.sh"
-WORKTREE_NAME="${D810_CORE_WORKTREE_NAME:-egglog-extension-extraction}"
+if [ -z "${D810_CORE_WORKTREE_NAME:-}" ]; then
+  echo "ERROR: D810_CORE_WORKTREE_NAME must name the core worktree used by run_system_tests_docker.sh (-w)" >&2
+  exit 1
+fi
+WORKTREE_NAME="$D810_CORE_WORKTREE_NAME"
 WORKTREE_DIR="$CORE_ROOT/.worktrees/$WORKTREE_NAME"
 EXTENSION_ROOT="${D810_EGGLOG_ROOT:-$EXTENSION_ROOT}"
 ARTIFACT_DIR="${D810_EGGLOG_PERF_ARTIFACT_DIR:-$WORKTREE_DIR/.tmp/egglog-native-performance}"
@@ -68,9 +72,9 @@ for MODE in 1 0; do
     D810_EGGLOG_CPROFILE_DIR="$CONTAINER_PROFILE_DIR" \
     D810_CYTHON_PROFILE="$CYTHON_TRACE" "$RUNNER" test \
     -w "$WORKTREE_NAME" -- \
-    tests/system/e2e/test_egglog_add_spike.py \
-    tests/system/e2e/test_egglog_mba_families_spike.py \
-    tests/system/e2e/test_egglog_mba_compiler_shape_profile.py \
+    /opt/d810-egglog/tests/system/e2e/test_egglog_add_spike.py \
+    /opt/d810-egglog/tests/system/e2e/test_egglog_mba_families_spike.py \
+    /opt/d810-egglog/tests/system/e2e/test_egglog_mba_compiler_shape_profile.py \
     -q -s | tee -a "$LOG"
   if [ "$CPROFILE" = 1 ]; then
     for corpus in egglog-add-spike egglog-mba-families-spike; do
@@ -84,7 +88,7 @@ for MODE in 1 0; do
     D810_DOCKER_IMAGE="$IMAGE" D810_NO_CYTHON="$MODE" \
     D810_CYTHON_PROFILE="$CYTHON_TRACE" "$RUNNER" test \
     -w "$WORKTREE_NAME" -- \
-    tests/system/runtime/backends/test_egglog_mba_performance.py \
+    /opt/d810-egglog/tests/system/runtime/backends/test_egglog_mba_performance.py \
     -q -m profile -s | tee -a "$LOG"
 
   rg '^EGGLOG_(MBA_NATIVE|MBA_REAL_CORPUS|MBA_CORPUS_PERFORMANCE)_RECEIPT=' "$LOG" \

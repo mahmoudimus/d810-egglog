@@ -66,7 +66,6 @@ def test_saturation_has_no_ast_compatibility_entry_point() -> None:
 
 def test_saturation_rejects_stale_typed_term_after_core_reload() -> None:
     extension_root = Path(__file__).parents[2]
-    core_root = extension_root.parent / "egglog-extension-extraction"
     script = textwrap.dedent(
         """
         import importlib
@@ -92,8 +91,10 @@ def test_saturation_rejects_stale_typed_term_after_core_reload() -> None:
         """
     )
     environment = os.environ.copy()
+    extension_src = extension_root / "src"
+    configured_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join(
-        (str(core_root / "src"), str(extension_root / "src"))
+        entry for entry in (str(extension_src), configured_pythonpath) if entry
     )
     completed = subprocess.run(
         [sys.executable, "-c", script],
