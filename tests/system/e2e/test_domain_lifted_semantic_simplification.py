@@ -13,6 +13,7 @@ import json
 import random
 import shutil
 import subprocess
+from types import MappingProxyType
 from pathlib import Path
 
 from d810_egglog.structural_rules import (
@@ -61,9 +62,7 @@ def _constant(value: int) -> TypedBvTerm:
     return TypedBvTerm(None, 32, value=value)
 
 
-def _binary(
-    operation: str, left: TypedBvTerm, right: TypedBvTerm
-) -> TypedBvTerm:
+def _binary(operation: str, left: TypedBvTerm, right: TypedBvTerm) -> TypedBvTerm:
     return TypedBvTerm(operation, 32, children=(left, right))
 
 
@@ -154,7 +153,7 @@ def test_complementary_rotate_residual_uses_only_width_correct_certified_rule() 
     assert receipt.status is StructuralRuleStatus.COMPILED
     assert receipt.compiled_rule is not None
     catalogue = structural_catalogue_for_rules((receipt.compiled_rule,))
-    applications = catalogue.canonical_applications(residual)
+    applications = catalogue.canonical_applications(residual).applications
     assert len(applications) == 1
     _rule, replacement, _comparisons = applications[0]
     assert replacement.operation == "rol"
@@ -233,7 +232,7 @@ def test_native_ast_negative_fixed_shifts_are_noops_with_stable_blockers() -> No
     import ida_hexrays
     from d810_egglog.saturation import (
         EgglogExtractionBudget,
-        extract_bounded_candidate,
+        extract_bounded_term,
     )
     from d810.mba.egraph_contracts import EgraphSkipReason
     from d810_egglog.structural_rules import (
@@ -259,9 +258,12 @@ def test_native_ast_negative_fixed_shifts_are_noops_with_stable_blockers() -> No
     )
     assert noncomplementary_lowering.term is not None
     catalogue = structural_catalogue_for_rules(rules)
-    assert catalogue.canonical_applications(noncomplementary_lowering.term) == ()
-    no_rule = extract_bounded_candidate(
-        noncomplementary,
+    assert (
+        catalogue.canonical_applications(noncomplementary_lowering.term).applications
+        == ()
+    )
+    no_rule = extract_bounded_term(
+        noncomplementary_lowering.raw_term,
         rules,
         EgglogExtractionBudget(
             max_leaves=2,
@@ -270,14 +272,12 @@ def test_native_ast_negative_fixed_shifts_are_noops_with_stable_blockers() -> No
             max_enodes=256,
             time_budget_ms=1000,
         ),
-        4,
+        destination_size=4,
+        profile=noncomplementary_lowering.profile,
         catalogue=catalogue,
     )
     assert no_rule.replacement_ast is None
-    assert (
-        no_rule.receipt.skip_reason
-        is EgraphSkipReason.NON_MBA_CANDIDATE
-    )
+    assert no_rule.receipt.skip_reason is EgraphSkipReason.NON_MBA_CANDIDATE
 
     arithmetic_lowering = lower_hexrays_island(
         _native_fixed_shift_case(ida_hexrays.m_sar, count=5),
@@ -293,15 +293,18 @@ def test_native_ast_negative_fixed_shifts_are_noops_with_stable_blockers() -> No
     assert variable_lowering.profile.blockers == (IslandBlocker.AMBIGUOUS_SHIFT,)
 
     cases = _manifest_cases()
-    assert no_rule.receipt.skip_reason.value == cases[
-        "fixed_shift_noncomplementary_32"
-    ]["expected_blocker"]
-    assert arithmetic_lowering.profile.blockers[0].value == cases[
-        "fixed_shift_arithmetic_right_32"
-    ]["expected_blocker"]
-    assert variable_lowering.profile.blockers[0].value == cases[
-        "fixed_shift_variable_count_32"
-    ]["expected_blocker"]
+    assert (
+        no_rule.receipt.skip_reason.value
+        == cases["fixed_shift_noncomplementary_32"]["expected_blocker"]
+    )
+    assert (
+        arithmetic_lowering.profile.blockers[0].value
+        == cases["fixed_shift_arithmetic_right_32"]["expected_blocker"]
+    )
+    assert (
+        variable_lowering.profile.blockers[0].value
+        == cases["fixed_shift_variable_count_32"]["expected_blocker"]
+    )
 
 
 def _find_compiler() -> str:
@@ -347,10 +350,7 @@ def test_task13_native_source_truth_vectors(tmp_path: Path) -> None:
     cases = _manifest_cases()
     scalar = ctypes.c_uint32
     rng = random.Random(880)
-    vectors = tuple(
-        tuple(rng.randrange(1 << 32) for _ in range(8))
-        for _ in range(24)
-    )
+    vectors = tuple(tuple(rng.randrange(1 << 32) for _ in range(8)) for _ in range(24))
     for case_id in _TASK13_CASE_IDS:
         case = cases[case_id]
         shape = getattr(library, case["function"])
@@ -444,7 +444,6 @@ def test_native_ast_real_handler_route_measures_egglog_and_proof(
     """Prove fresh/replay/stale routing with the production native handler."""
 
     import d810_egglog.saturation as saturation
-    from d810_egglog.idb_cache import EgglogIdbCompositeCache
     from d810_egglog.composite_rewrite import EgglogCompositeRewrite
     from d810.backends.mba.hexrays_island import lower_hexrays_island
     from d810.hexrays.ir.minsn_utils import minsn_to_ast
@@ -499,7 +498,7 @@ def test_native_ast_real_handler_route_measures_egglog_and_proof(
             handler, "_direct_native_application", lambda **_kwargs: None
         )
         handler._composite_cache = (
-            EgglogIdbCompositeCache() if cache is None else cache
+            handler._create_composite_cache() if cache is None else cache
         )
         handler.cross_block_constant_preparation = True
         return handler
@@ -530,7 +529,10 @@ def test_native_ast_real_handler_route_measures_egglog_and_proof(
         assert first_template is not None
         assert first_template.egraph_run_count == receipt.egraph_run_count
         first_handler.record_mutation_accepted()
-        assert first_handler.provider_outcomes()[-1].status is ProviderOutcomeStatus.APPLIED
+        assert (
+            first_handler.provider_outcomes()[-1].status
+            is ProviderOutcomeStatus.APPLIED
+        )
     finally:
         first_handler.end_provider_outcome_capture()
 
@@ -560,7 +562,10 @@ def test_native_ast_real_handler_route_measures_egglog_and_proof(
         assert replay_receipt.legacy_proof_verdict is True
         assert len(run_calls) == before_replay_runs
         second_handler.record_mutation_accepted()
-        assert second_handler.provider_outcomes()[-1].status is ProviderOutcomeStatus.APPLIED
+        assert (
+            second_handler.provider_outcomes()[-1].status
+            is ProviderOutcomeStatus.APPLIED
+        )
     finally:
         second_handler.end_provider_outcome_capture()
 
@@ -595,7 +600,12 @@ def test_native_ast_real_handler_route_measures_egglog_and_proof(
                 _native_semantic_instruction(),
                 blk=None,
             )
-            assert result is not None
+            assert result is not None, (
+                stale_field,
+                stale_handler.last_extraction_receipt,
+                stale_handler.last_rule_family,
+                stale_handler.last_rule_provenance,
+            )
             stale_receipt = stale_handler.last_extraction_receipt
             assert stale_receipt is not None
             assert stale_receipt.execution_path == "fresh_saturation"
@@ -605,7 +615,10 @@ def test_native_ast_real_handler_route_measures_egglog_and_proof(
             assert len(run_calls) == before_fresh_runs + 1
             assert stale_receipt.legacy_proof_verdict is True
             stale_handler.record_mutation_accepted()
-            assert stale_handler.provider_outcomes()[-1].status is ProviderOutcomeStatus.APPLIED
+            assert (
+                stale_handler.provider_outcomes()[-1].status
+                is ProviderOutcomeStatus.APPLIED
+            )
         finally:
             stale_handler.end_provider_outcome_capture()
 
@@ -620,13 +633,14 @@ class TestNativeFixedShiftResidual:
         ida_database,
         configure_hexrays,
         setup_libobfuscated_funcs,
+        monkeypatch,
     ):
         del ida_database, configure_hexrays, setup_libobfuscated_funcs
         import ida_hexrays
         import idautils
         from d810_egglog.saturation import (
             EgglogExtractionBudget,
-            extract_bounded_candidate,
+            extract_bounded_term,
         )
         from d810_egglog.structural_rules import (
             compile_all_fixed_rotate_rules,
@@ -699,18 +713,26 @@ class TestNativeFixedShiftResidual:
         # Egglog route handles the residual.
         direct_expression = _expression_from_instruction(direct_candidate)
         assert _validated_native_match(direct_expression) is None
-        assert RotateIdiomRecoveryRule().check_and_replace(
-            block,
-            direct_candidate,
-        ) is None
+        assert (
+            RotateIdiomRecoveryRule().check_and_replace(
+                block,
+                direct_candidate,
+            )
+            is None
+        )
 
         # Lower the *same* native instruction that the direct path inspected.
         # This keeps the direct-abstention and Egglog candidate mechanically
         # identical instead of comparing two separately hand-built trees.
         candidate = minsn_to_ast(direct_candidate)
         assert candidate is not None
+        candidate.dst_mop = output
 
+        from d810.backends.mba import extension_host
+        from d810.backends.mba.cross_block_preparation import PreparedCrossBlockAst
+        from d810.backends.mba.extension_host import native_mba_host_services
         from d810.backends.mba.hexrays_island import lower_hexrays_island
+        from d810.hexrays.ir.mop_utils import mop_to_ast
 
         lowering = lower_hexrays_island(candidate, destination_size=4)
         assert lowering.term is not None
@@ -719,8 +741,8 @@ class TestNativeFixedShiftResidual:
             for receipt in compile_all_fixed_rotate_rules()
             if receipt.compiled_rule is not None
         )
-        result = extract_bounded_candidate(
-            candidate,
+        result = extract_bounded_term(
+            lowering.raw_term,
             rules,
             EgglogExtractionBudget(
                 max_leaves=2,
@@ -729,17 +751,48 @@ class TestNativeFixedShiftResidual:
                 max_enodes=256,
                 time_budget_ms=1000,
             ),
-            4,
+            destination_size=4,
+            profile=lowering.profile,
             catalogue=structural_catalogue_for_rules(rules),
             block=block,
             destination=output,
         )
-        assert result.replacement_ast is not None, result.receipt
         assert result.replacement_term is not None
-        assert prove_typed_term_equivalence(
-            lowering.term, result.replacement_term
+        assert prove_typed_term_equivalence(lowering.term, result.replacement_term)
+        # Saturation is typed-term-only after the extension hard cut. Native
+        # reconstruction and proof remain host-owned, so exercise that public
+        # facade against this exact direct candidate.
+        host = native_mba_host_services()
+        native_candidate = host.capture_ast(candidate, destination_size=4)
+        monkeypatch.setattr(
+            extension_host,
+            "prepare_ast_with_cross_block_constants",
+            lambda *_args, **_kwargs: PreparedCrossBlockAst(
+                ast=candidate.clone(),
+                substitutions=0,
+                environment=MappingProxyType({}),
+                known_constants=MappingProxyType({}),
+            ),
         )
-        assert result.replacement_ast.l.d.l.helper == "__ROL4__"
+        native_candidate = host.prepare_cross_block(
+            native_candidate,
+            block=block,
+            instruction=direct_candidate,
+            use_constants=True,
+            use_def_use=False,
+        )
+        reconstruction = host.rebuild(native_candidate, result.replacement_term)
+        assert reconstruction is not None, result.receipt
+        replacement_ast = reconstruction.replacement_ast
+        replacement_value_ast = mop_to_ast(replacement_ast.l)
+        assert replacement_value_ast is not None
+        assert host.prove_ast(
+            native_candidate,
+            replacement_value_ast,
+            certificate=None,
+            known_constants=None,
+        )
+        assert replacement_ast.l.d.l.helper == "__ROL4__"
         assert result.receipt.selected_family == "fixed_rotate"
         assert result.receipt.selected_source == "rol_32_7"
         assert result.receipt.degree == 1

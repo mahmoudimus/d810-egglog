@@ -1862,6 +1862,7 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                 reconstruction,
                 certificate=self._native_proof_certificate(selected[1]),
                 known_constants=known_constants,
+                proof_timeout_ms=self._native_z3_timeout_ms(),
             )
         except Exception:
             proved = False

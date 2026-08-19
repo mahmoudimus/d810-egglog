@@ -106,4 +106,25 @@ def build_native_egglog_profile(stats, *, corpus: str) -> dict[str, object]:
     }
 
 
-__all__ = ["build_native_egglog_profile", "profile_native_egglog_cprofile"]
+def assert_runtime_image_identity(
+    baseline: dict[str, object], report: dict[str, object]
+) -> None:
+    """Require the same immutable runtime image, ignoring mutable tag aliases."""
+
+    baseline_id = baseline.get("docker_image_id")
+    report_id = report.get("docker_image_id")
+    if type(baseline_id) is not str or not baseline_id:
+        raise AssertionError("baseline image digest is missing")
+    if type(report_id) is not str or not report_id:
+        raise AssertionError("report image digest is missing")
+    if baseline_id != report_id:
+        raise AssertionError(
+            f"image digest differs: baseline={baseline_id!r}, report={report_id!r}"
+        )
+
+
+__all__ = [
+    "assert_runtime_image_identity",
+    "build_native_egglog_profile",
+    "profile_native_egglog_cprofile",
+]

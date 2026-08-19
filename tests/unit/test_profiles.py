@@ -65,3 +65,31 @@ def test_profile_resource_installation_is_explicit_and_deterministic() -> None:
     text = readme.read_text(encoding="utf-8")
     assert 'files("d810_egglog.profiles")' in text
     assert "auto-discover" in text.lower()
+
+
+def test_readme_install_destination_is_the_project_manager_scan_root(
+    tmp_path: Path,
+) -> None:
+    """Copied resources must land where D810Configuration scans JSON files."""
+
+    from d810.core.config import D810Configuration
+    from d810.core.project import ProjectManager
+
+    readme = Path(__file__).parents[2] / "README.md"
+    text = readme.read_text(encoding="utf-8")
+    expected_destination = 'Path.home() / ".idapro" / "cfg" / "d810"'
+    assert expected_destination in text
+    assert ' / "profiles"' not in text
+
+    ida_user_dir = tmp_path / ".idapro"
+    destination = ida_user_dir / "cfg" / "d810"
+    destination.mkdir(parents=True)
+    resources = files("d810_egglog.profiles")
+    for resource in sorted(resources.iterdir(), key=lambda item: item.name):
+        if resource.name.endswith(".json"):
+            (destination / resource.name).write_bytes(resource.read_bytes())
+
+    manager = ProjectManager(D810Configuration(ida_user_dir=ida_user_dir))
+    discovered = {project.path for project in manager.projects()}
+
+    assert {destination / name for name in _PROFILE_NAMES} <= discovered

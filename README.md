@@ -24,7 +24,7 @@ python - <<'PY'
 from importlib.resources import files
 from pathlib import Path
 
-destination = Path.home() / ".idapro" / "cfg" / "d810" / "profiles"
+destination = Path.home() / ".idapro" / "cfg" / "d810"
 destination.mkdir(parents=True, exist_ok=True)
 resources = files("d810_egglog.profiles")
 for resource in sorted(resources.iterdir(), key=lambda item: item.name):

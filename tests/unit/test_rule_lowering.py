@@ -52,3 +52,42 @@ def test_catalogue_materializes_replacement_from_derived_constraint_bindings() -
     assert replacement.operation == "add"
     assert any(child.leaf_key == ("candidate", "x") for child in replacement.children)
     assert any(child.value == 0 for child in replacement.children)
+
+
+def test_catalogue_preserves_asymmetric_subtraction_operand_orientation() -> None:
+    """AC canonicalization must not reverse an asymmetric Sub_HD2 result."""
+
+    from d810.mba.certified_rule_compiler import compile_mba_rule_catalogue
+    from d810.mba.extension_api import TypedBvTerm
+    from d810_egglog.rule_lowering import CanonicalMbaRuleCatalogue
+
+    rule = (
+        compile_mba_rule_catalogue()
+        .receipt_for("sub", "Sub_HackersDelightRule_2")
+        .compiled_rule
+    )
+    assert rule is not None
+
+    x = TypedBvTerm(None, 32, leaf_key=("candidate", "x"))
+    y = TypedBvTerm(None, 32, leaf_key=("candidate", "y"))
+
+    def constant(value):
+        return TypedBvTerm(None, 32, value=value)
+
+    def node(operation, *children):
+        return TypedBvTerm(operation, 32, children=tuple(children))
+
+    candidate = node(
+        "sub",
+        node("xor", x, y),
+        node("mul", constant(2), node("and", node("bnot", y), x)),
+    )
+    report = CanonicalMbaRuleCatalogue.from_rules((rule,)).canonical_applications(
+        candidate,
+        comparison_budget=64,
+    )
+
+    assert len(report.applications) == 1
+    replacement = report.applications[0][1]
+    assert replacement.operation == "sub"
+    assert replacement.children == (y, x)

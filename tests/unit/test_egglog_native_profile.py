@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 
+import pytest
+
 from tests.system.e2e.egglog_native_profile import (
     build_native_egglog_profile,
     profile_native_egglog_cprofile,
+    assert_runtime_image_identity,
 )
 
 
@@ -72,3 +75,30 @@ def test_native_egglog_cprofile_does_not_allocate_without_an_artifact_dir(
 
     assert profile_native_egglog_cprofile("fixture", lambda: "result") == "result"
     assert not tuple(tmp_path.iterdir())
+
+
+def test_runtime_image_identity_ignores_tag_aliases_when_digest_matches() -> None:
+    baseline = {
+        "docker_image": "idapro-9.4-speedups:cli",
+        "docker_image_id": "sha256:fixture",
+    }
+    report = {
+        "docker_image": "idapro-9.4-speedups:latest",
+        "docker_image_id": "sha256:fixture",
+    }
+
+    assert_runtime_image_identity(baseline, report)
+
+
+def test_runtime_image_identity_rejects_digest_drift_even_with_same_tag() -> None:
+    baseline = {
+        "docker_image": "idapro-9.4-speedups:cli",
+        "docker_image_id": "sha256:fixture",
+    }
+    report = {
+        "docker_image": "idapro-9.4-speedups:cli",
+        "docker_image_id": "sha256:different",
+    }
+
+    with pytest.raises(AssertionError, match="image digest"):
+        assert_runtime_image_identity(baseline, report)

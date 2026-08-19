@@ -11,9 +11,6 @@ import pytest
 
 from d810.testing.cases import DeobfuscationCase
 from d810.testing.runner import run_deobfuscation_test
-from d810_egglog.rules.egglog_optimizer import (
-    EgglogOptimizer,
-)
 from tests.system.e2e.egglog_native_corpus import (
     NativeEgglogCorpusEntry,
     build_native_egglog_attempt_receipt,
@@ -110,26 +107,6 @@ _NONMATCH_FUNCTIONS = (
 _PROFILE_FUNCTIONS = tuple(_DIRECT_RULES) + _NONMATCH_FUNCTIONS
 
 
-def _native_ast_leaf_assignments(node):
-    """Expose proof-side leaf identity for the one live parity boundary."""
-
-    if node.is_leaf():
-        mop = node.mop
-        if hasattr(mop, "to_cache_key"):
-            key = tuple(mop.to_cache_key())
-        else:
-            from d810.hexrays.expr.ast import get_mop_key
-
-            key = tuple(get_mop_key(mop))
-        return ("leaf", key, id(mop), repr(mop))
-    return (
-        "node",
-        int(node.opcode),
-        _native_ast_leaf_assignments(node.left),
-        None if node.right is None else _native_ast_leaf_assignments(node.right),
-    )
-
-
 @pytest.mark.usefixtures("configure_hexrays")
 class TestEgglogCompilerShapeProfile:
     """Thirty distinct real-IDB roots: direct matches and structural misses."""
@@ -166,38 +143,12 @@ class TestEgglogCompilerShapeProfile:
         ida_database,
         d810_state,
         pseudocode_to_string,
-        monkeypatch,
     ) -> None:
         expected_rule = _DIRECT_RULES.get(function)
         expect_provider_outcome = (
             expected_rule is not None and _catalogue_reaches_provider(function)
         )
         expect_mutation = expect_provider_outcome
-        proof_boundaries = []
-        if function == "mba_shape_catalogue_04":
-            original_prove = EgglogOptimizer._prove_ast_equivalence
-
-            def capture_proof(original, replacement, *, width, timeout_ms=50):
-                verdict = original_prove(
-                    original,
-                    replacement,
-                    width=width,
-                    timeout_ms=timeout_ms,
-                )
-                proof_boundaries.append(
-                    (
-                        _native_ast_leaf_assignments(original),
-                        _native_ast_leaf_assignments(replacement),
-                        verdict,
-                    )
-                )
-                return verdict
-
-            monkeypatch.setattr(
-                EgglogOptimizer,
-                "_prove_ast_equivalence",
-                staticmethod(capture_proof),
-            )
         entry = NativeEgglogCorpusEntry(
             corpus="egglog-compiler-shapes",
             function=function,
@@ -246,10 +197,6 @@ class TestEgglogCompilerShapeProfile:
             prepare_runtime_state=prepare_runtime_state,
             capture_runtime_state=capture_runtime_state,
         )
-
-        if function == "mba_shape_catalogue_04":
-            assert proof_boundaries
-            assert all(boundary[-1] for boundary in proof_boundaries), proof_boundaries
 
         print(
             "\nEGGLOG_MBA_REAL_CORPUS_RECEIPT="

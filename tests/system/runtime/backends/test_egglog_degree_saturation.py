@@ -2397,7 +2397,6 @@ def test_live_handler_default_time_budget_is_telemetry_only(monkeypatch):
 
 
 def test_live_handler_opt_in_stage_timings_publish_after_reconstruction(monkeypatch):
-    from d810.backends.mba.native_pod_matcher import matcher_backend
     from d810_egglog.rule_lowering import CanonicalMbaRuleCatalogue
 
     candidate = _direct_add_candidate()
@@ -2493,7 +2492,9 @@ def test_live_handler_opt_in_stage_timings_publish_after_reconstruction(monkeypa
         handler.provider_outcome().metadata["stage_timings_ms"]
         == metadata["stage_timings_ms"]
     )
-    assert metadata["native_matcher_backend"] == matcher_backend()
+    # The moved canonical catalogue uses the provider-neutral term matcher;
+    # it is intentionally independent of the active AST/POD dispatcher mode.
+    assert metadata["native_matcher_backend"] == "python"
     assert type(metadata["native_matcher_comparisons"]) is int
     assert type(metadata["native_matcher_lazy_swaps"]) is int
     assert type(metadata["native_fixed_binding_count"]) is int

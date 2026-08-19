@@ -117,119 +117,6 @@ def _force_fresh_saturation(optimizer, monkeypatch) -> None:
     monkeypatch.setattr(optimizer, "learned_replay_enabled", False)
 
 
-def _trace_native_boundaries(optimizer, monkeypatch) -> None:
-    """Print one candidate's host boundary results for focused diagnosis."""
-
-    if os.environ.get("D810_EGGLOG_TRACE_BOUNDARIES") != "1":
-        return
-
-    host = optimizer._host
-    import d810.backends.mba.extension_host as host_module
-
-    rebuild_island = host_module.rebuild_hexrays_island
-    materialize_instruction = host_module._materialize_instruction
-    capture_instruction = host.capture_instruction
-    rebuild = host.rebuild
-    prove = host.prove
-
-    def traced_capture(instruction):
-        candidate = capture_instruction(instruction)
-        print(
-            "EGRAPH_BOUNDARY capture_instruction"
-            f" result={'none' if candidate is None else 'term'}"
-            f" term={None if candidate is None else candidate.term}"
-            f" raw_term={None if candidate is None else candidate.raw_term}",
-            flush=True,
-        )
-        return candidate
-
-    def traced_rebuild_island(*args, **kwargs):
-        replacement_ast = rebuild_island(*args, **kwargs)
-        print(
-            "EGRAPH_BOUNDARY rebuild_hexrays_island"
-            f" result={'none' if replacement_ast is None else type(replacement_ast).__name__}"
-            f" has_create_minsn={callable(getattr(replacement_ast, 'create_minsn', None))}",
-            flush=True,
-        )
-        return replacement_ast
-
-    def traced_materialize(replacement_ast, context, destination_size):
-        destination = host_module._copy_destination(context.destination)
-        print(
-            "EGRAPH_BOUNDARY destination"
-            f" original_t={getattr(context.destination, 't', None)}"
-            f" original_size={getattr(context.destination, 'size', None)}"
-            f" copy_t={getattr(destination, 't', None)}"
-            f" copy_size={getattr(destination, 'size', None)}"
-            f" valid={host_module._valid_destination(destination, destination_size)}",
-            flush=True,
-        )
-        create_minsn = getattr(replacement_ast, "create_minsn", None)
-        if callable(create_minsn):
-            try:
-                probe = create_minsn(
-                    host_module._native_ea(
-                        context.source_instruction, context.source_ast
-                    ),
-                    destination,
-                )
-                print(
-                    "EGRAPH_BOUNDARY create_minsn"
-                    f" result={type(probe).__name__}"
-                    f" opcode={getattr(probe, 'opcode', None)}"
-                    f" dest_t={getattr(getattr(probe, 'd', None), 't', None)}"
-                    f" dest_size={getattr(getattr(probe, 'd', None), 'size', None)}"
-                    f" valid={host_module._valid_instruction_destination(probe, destination_size)}",
-                    flush=True,
-                )
-            except Exception as exc:
-                print(
-                    "EGRAPH_BOUNDARY create_minsn"
-                    f" exception={type(exc).__name__}:{exc}",
-                    flush=True,
-                )
-        replacement_instruction = materialize_instruction(
-            replacement_ast, context, destination_size
-        )
-        print(
-            "EGRAPH_BOUNDARY materialize_instruction"
-            f" ast={type(replacement_ast).__name__}"
-            f" has_create_minsn={callable(getattr(replacement_ast, 'create_minsn', None))}"
-            f" result={'none' if replacement_instruction is None else type(replacement_instruction).__name__}"
-            f" opcode={getattr(replacement_instruction, 'opcode', None)}",
-            flush=True,
-        )
-        return replacement_instruction
-
-    def traced_rebuild(candidate, replacement):
-        reconstruction = rebuild(candidate, replacement)
-        print(
-            "EGRAPH_BOUNDARY host_rebuild"
-            f" result={'none' if reconstruction is None else 'instruction'}"
-            f" replacement={replacement}"
-            f" replacement_ast={None if reconstruction is None else type(reconstruction.replacement_ast).__name__}"
-            f" replacement_instruction={None if reconstruction is None else type(reconstruction.replacement_instruction).__name__}",
-            flush=True,
-        )
-        return reconstruction
-
-    def traced_prove(candidate, reconstruction, **kwargs):
-        proved = prove(candidate, reconstruction, **kwargs)
-        print(
-            "EGRAPH_BOUNDARY host_prove"
-            f" result={proved}"
-            f" replacement_ast={type(reconstruction.replacement_ast).__name__}",
-            flush=True,
-        )
-        return proved
-
-    monkeypatch.setattr(host, "capture_instruction", traced_capture)
-    monkeypatch.setattr(host, "rebuild", traced_rebuild)
-    monkeypatch.setattr(host, "prove", traced_prove)
-    monkeypatch.setattr(host_module, "rebuild_hexrays_island", traced_rebuild_island)
-    monkeypatch.setattr(host_module, "_materialize_instruction", traced_materialize)
-
-
 class TestEgglogAddSpike:
     binary_name = _get_default_binary()
 
@@ -279,7 +166,6 @@ class TestEgglogAddSpike:
                 if rule.name == "EgglogOptimizer"
             )
             _force_fresh_saturation(captured_optimizer, monkeypatch)
-            _trace_native_boundaries(captured_optimizer, monkeypatch)
             provider_cursor = captured_optimizer.provider_outcome_cursor()
 
         def capture_runtime_state(state) -> None:

@@ -34,6 +34,9 @@ from d810.mba.dsl import SymbolicExpressionProtocol  # noqa: E402
 from d810_egglog.rules.egglog_optimizer import (  # noqa: E402
     EgglogOptimizer,
 )
+from tests.system.e2e.egglog_native_profile import (  # noqa: E402
+    assert_runtime_image_identity,
+)
 
 
 _CLOSED_FAMILIES = ("add", "and", "bnot", "mul", "neg", "or", "sub", "xor")
@@ -558,6 +561,7 @@ def test_corpus_receipt_reports_quantiles_and_rejects_100x_regression(
             *,
             certificate,
             known_constants,
+            proof_timeout_ms=None,
         ):
             return real_host.prove_ast(
                 candidate,
@@ -628,8 +632,16 @@ def test_corpus_receipt_reports_quantiles_and_rejects_100x_regression(
 
     # The Phase 0 snapshot is provenance, not a performance threshold. It
     # prevents a report from silently mixing the two dispatcher modes/images.
-    assert baseline_stage_profiles["image"] == report["docker_image"]
-    assert baseline_stage_profiles["image_id"] == report["docker_image_id"]
+    assert_runtime_image_identity(
+        {
+            "docker_image": baseline_stage_profiles["image"],
+            "docker_image_id": baseline_stage_profiles["image_id"],
+        },
+        {
+            "docker_image": report["docker_image"],
+            "docker_image_id": report["docker_image_id"],
+        },
+    )
     assert baseline_stage_profiles["egglog_version"] == report["egglog_version"]
     assert baseline_stage_profile["cython_enabled"] is report["cython_enabled"]
 
