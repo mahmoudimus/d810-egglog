@@ -14,6 +14,9 @@ from d810.backends.mba.egglog_add_rule_compiler import (  # noqa: E402
     specialize,
 )
 from d810.mba.egraph_contracts import EgraphExtractionReceipt  # noqa: E402
+from d810.mba.certified_rule_compiler import (  # noqa: E402
+    compile_mba_rule_catalogue,
+)
 from d810.core.stats import OptimizationStatistics  # noqa: E402
 from d810.hexrays.expr.ast import (  # noqa: E402
     AstConstant,
@@ -167,6 +170,23 @@ def test_live_handler_selects_certified_catalogue_rule_with_alias_provenance():
     assert specialization is not None
     assert specialization.rule.source_name == "Add_HackersDelightRule_2"
     assert specialization.rule.aliases == ("Add_OllvmRule_3",)
+
+
+def test_live_handler_forwards_rule_declared_native_proof_certificate():
+    rule = (
+        compile_mba_rule_catalogue()
+        .receipt_for("sub", "Sub_ComplementMaskHodurRule_1")
+        .compiled_rule
+    )
+    assert rule is not None
+
+    handler = EgglogOptimizer()
+    handler._compiled_rules = (rule,)
+
+    assert (
+        handler._native_proof_certificate("Sub_ComplementMaskHodurRule_1")
+        == "complement-mask-hodur-v1"
+    )
 
 
 def test_live_handler_selects_later_certified_specialization_with_lower_cost(

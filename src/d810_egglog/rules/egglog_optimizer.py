@@ -1687,9 +1687,22 @@ class EgglogOptimizer(PeepholeSimplificationRule):
         )
 
     def _native_proof_certificate(self, source_name: str) -> str | None:
-        """Return no provider-owned certificate; native proof stays host-owned."""
+        """Return a rule-declared bounded native proof plan, if any.
 
-        del source_name
+        The certificate is only a selector for the core host's independently
+        checked proof plan.  The host still lowers and proves the live native
+        candidate before mutation; this lookup does not authorize a rewrite by
+        rule name alone.
+        """
+
+        for rule in self._compiled_rules:
+            if rule.source_name == source_name:
+                certificate = getattr(
+                    rule.rule_type,
+                    "EGGLOG_CERTIFICATE_PROVER",
+                    None,
+                )
+                return certificate if type(certificate) is str else None
         return None
 
     def _select_specialization(

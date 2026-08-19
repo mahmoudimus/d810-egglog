@@ -1,8 +1,6 @@
-"""Native Egglog regression for the MASM-extracted Hodur MBA residual."""
+"""Native Egglog regression for a focused MASM-extracted Hodur MBA residual."""
 
 from __future__ import annotations
-
-import os
 
 import ida_entry
 import ida_funcs
@@ -13,8 +11,10 @@ import pytest
 from d810_egglog.rules.egglog_optimizer import EgglogOptimizer
 
 
-_PROBE_BINARY = "/work/.tmp/disposable-mmorpg-mba-probe/mmorpg_mba_probe.dll"
-_FUNCTION_NAME = "sub_7FF85A13D930"
+_PROBE_BINARY = (
+    "/opt/d810-egglog/tests/_resources/hodur_complement_mask/hodur_egglog_probe.dll"
+)
+_FUNCTION_NAME = "Hodur_ComplementMaskResidual"
 
 
 def _function_ea(name: str) -> int:
@@ -31,14 +31,14 @@ def _function_ea(name: str) -> int:
     return idaapi.BADADDR
 
 
-@pytest.mark.usefixtures("configure_hexrays", "setup_libobfuscated_funcs")
+@pytest.mark.usefixtures("configure_hexrays")
 class TestHodurEgglogWithoutFcp:
-    binary_name = os.environ.get("D810_TEST_BINARY", _PROBE_BINARY)
+    binary_name = _PROBE_BINARY
 
     def test_interactive_egglog_reduces_the_real_mba_residual_after_fcp_is_removed(
         self, ida_database, d810_state, pseudocode_to_string, monkeypatch
     ) -> None:
-        """The real residual mutates only through the certified native-Z3 path."""
+        """The extracted residual mutates only through the certified native-Z3 path."""
         ea = _function_ea(_FUNCTION_NAME)
         assert ea != idaapi.BADADDR
 
@@ -76,6 +76,7 @@ class TestHodurEgglogWithoutFcp:
                         "cross_block_constant_preparation": False,
                         "cross_block_def_use_preparation": False,
                         "time_budget_ms": 1000,
+                        "execution_mode": "noninteractive",
                         "require_proof": True,
                     }
                 )
