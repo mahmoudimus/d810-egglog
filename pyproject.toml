@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77.0.1", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "d810-egglog"
+version = "0.1.0"
+description = "Optional Egglog e-graph backend for d810-ng"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "d810 contributors" }]
+dependencies = [
+  "d810-ng>=1.0.0b2",
+  "egglog>=13.2.0,<14",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0", "ruff>=0.12"]
+
+[project.entry-points."d810.backends"]
+egglog = "d810_egglog:MANIFEST"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]

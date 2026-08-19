@@ -1,0 +1,62 @@
+[importlinter]
+root_packages =
+    d810
+    d810_egglog
+    tests
+include_external_packages = True
+exclude_type_checking_imports = True
+
+[importlinter:contract:manifest-is-cheap]
+name = The root manifest must not import runtime or rules
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    d810_egglog
+forbidden_modules =
+    d810_egglog.runtime
+    d810_egglog.rules
+
+[importlinter:contract:extension-no-ida]
+name = Portable extension modules must not import IDA or Hex-Rays
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    d810_egglog
+forbidden_modules =
+    idaapi
+    ida_hexrays
+    ida_kernwin
+    ida_loader
+    ida_funcs
+    ida_bytes
+    ida_name
+    idc
+    idautils
+    idapro
+
+[importlinter:contract:extension-no-manager-ui]
+name = Extension modules must not import manager or UI layers
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    d810_egglog
+forbidden_modules =
+    d810.manager
+    d810.ui
+
+[importlinter:contract:extension-d810-boundary]
+name = Extension integration uses the lifted D810 contract boundary
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    d810_egglog
+forbidden_modules =
+    d810.core
+    d810.capabilities
+    d810.evaluator
+    d810.families
+    d810.hexrays
+    d810.ir
+    d810.optimizers
+    d810.passes
+    d810.transforms
