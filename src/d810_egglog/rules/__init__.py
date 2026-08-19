@@ -1,0 +1,1 @@
+"""Optional Egglog rule registrations."""

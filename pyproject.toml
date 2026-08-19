@@ -29,3 +29,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
+markers = [
+  "runtime: tests that exercise the live runtime",
+  "hexrays: tests that require the Hex-Rays runtime",
+  "ida_required: tests that require IDA/idalib initialization",
+  "profile: tests that collect bounded performance receipts",
+]
