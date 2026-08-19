@@ -13,6 +13,7 @@ from d810_egglog.composite_rewrite import (
     ActiveSemantics,
     AlphaTerm,
     CompositeRewriteMalformed,
+    CompositeRewriteSemantics,
     EgglogCompositeRewrite,
 )
 from d810.mba.extension_api import TypedBvTerm, fixed_shift_term
@@ -75,6 +76,10 @@ def test_alpha_term_is_frozen_and_slotted() -> None:
     term = AlphaTerm(width=32, leaf_slot=0)
     with pytest.raises(FrozenInstanceError):
         term.width = 64  # type: ignore[misc]
+
+
+def test_composite_semantics_has_no_legacy_rules_spelling() -> None:
+    assert not hasattr(CompositeRewriteSemantics, "rules")
 
 
 def test_composite_rebinds_current_live_leaf_shape(semantics: ActiveSemantics) -> None:

@@ -99,6 +99,12 @@ def test_cache_uses_host_persistence_instead_of_netnode() -> None:
     assert "d810.mba.extension_api" in imported_modules
 
 
+def test_cache_has_no_legacy_get_surface() -> None:
+    from d810_egglog.idb_cache import EgglogIdbCompositeCache
+
+    assert not hasattr(EgglogIdbCompositeCache, "get")
+
+
 def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() -> None:
     from d810_egglog.composite_rewrite import ActiveSemantics, EgglogCompositeRewrite
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
@@ -162,7 +168,7 @@ def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() ->
 
     fresh_leaf = _leaf("fresh")
     fresh_term = _binary("add", _binary("add", fresh_leaf, fresh_leaf), fresh_leaf)
-    loaded = cache.get(rewrite.bucket_key)
+    loaded = cache.lookup(rewrite.bucket_key).rewrites
     assert len(loaded) == 1
     bindings = loaded[0].match(fresh_term, semantics=semantics)
     assert bindings == {0: fresh_leaf}

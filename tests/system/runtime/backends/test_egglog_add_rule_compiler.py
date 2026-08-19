@@ -27,6 +27,9 @@ import d810_egglog.rules.egglog_optimizer as egglog_optimizer  # noqa: E402
 from d810_egglog.rules.egglog_optimizer import (  # noqa: E402
     EgglogOptimizer,
 )
+from d810_egglog.rule_lowering import (  # noqa: E402
+    CanonicalMbaRuleCatalogueReport,
+)
 from d810.optimizers.microcode.instructions.peephole.handler import (  # noqa: E402
     PeepholeOptimizer,
 )
@@ -116,7 +119,14 @@ def test_specialize_accepts_semantically_cloned_catalogue_rule(monkeypatch):
     class FakeCatalogue:
         def canonical_applications(self, _candidate, *, comparison_budget):
             assert comparison_budget > 0
-            return ((replace(rule), replacement_term, 0),)
+            return CanonicalMbaRuleCatalogueReport(
+                ((replace(rule), replacement_term, 0),),
+                comparisons=1,
+                commuted_branches=0,
+                fixed_binding_count=1,
+                matches=(),
+                stop_reasons=(),
+            )
 
     monkeypatch.setattr(
         egglog_optimizer,

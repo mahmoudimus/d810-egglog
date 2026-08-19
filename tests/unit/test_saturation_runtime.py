@@ -23,6 +23,7 @@ from d810_egglog.structural_rules import (
 )
 from d810.mba import typed_term
 from d810.mba.extension_api import (
+    AcMatchStopReason,
     CanonicalPatternComparisonBudgetExceeded,
     TypedBvTerm,
 )
@@ -59,45 +60,8 @@ def _fixed_shift(operation: str, value: TypedBvTerm, count: int) -> TypedBvTerm:
     )
 
 
-def test_extract_bounded_candidate_classifies_typed_host_unsupported(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from d810.mba import extension_api
-
-    unsupported = getattr(extension_api, "NativeMbaUnsupportedCandidate", None)
-    assert unsupported is not None
-
-    class Host:
-        def capture_ast(self, _candidate, *, destination_size):
-            raise unsupported("unsupported lowering")
-
-    monkeypatch.setattr(saturation, "_native_host_services", lambda: Host())
-    result = saturation.extract_bounded_candidate(
-        object(),
-        (),
-        saturation.EgglogExtractionBudget(),
-        4,
-    )
-
-    assert result.receipt.skip_reason is EgraphSkipReason.UNSUPPORTED_WIDTH_SEMANTICS
-
-
-def test_extract_bounded_candidate_reports_unexpected_host_errors_as_internal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class Host:
-        def capture_ast(self, _candidate, *, destination_size):
-            raise RuntimeError("unexpected host failure")
-
-    monkeypatch.setattr(saturation, "_native_host_services", lambda: Host())
-    result = saturation.extract_bounded_candidate(
-        object(),
-        (),
-        saturation.EgglogExtractionBudget(),
-        4,
-    )
-
-    assert result.receipt.skip_reason is EgraphSkipReason.INTERNAL_ERROR
+def test_saturation_has_no_ast_compatibility_entry_point() -> None:
+    assert not hasattr(saturation, "extract_bounded_candidate")
 
 
 def test_saturation_rejects_stale_typed_term_after_core_reload() -> None:
@@ -172,22 +136,52 @@ def test_extension_catalogue_matches_admitted_canonical_rules_in_order() -> None
     catalogue = CanonicalMbaRuleCatalogue.from_rules(rules)
     source = catalogue.patterns[0].pattern_term
 
-    applications = catalogue.canonical_applications(source, comparison_budget=256)
+    applications = catalogue.canonical_applications(
+        source, comparison_budget=256
+    ).applications
 
     assert applications
     assert applications[0][0] is rules[0]
     assert applications[0][2] == 0
 
 
-def test_extension_catalogue_fails_closed_on_comparison_budget() -> None:
+def test_extension_catalogue_reports_actual_match_telemetry() -> None:
+    from d810.mba.certified_rule_compiler import compile_add_rule_catalogue
+
+    rules = compile_add_rule_catalogue().compiled_rules
+    catalogue = CanonicalMbaRuleCatalogue.from_rules(rules)
+    pattern = next(
+        pattern
+        for pattern in catalogue.patterns
+        if pattern.rule.source_name == "Add_HackersDelightRule_5"
+        and pattern.width == 32
+    )
+
+    report = catalogue.canonical_applications(
+        pattern.pattern_term,
+        comparison_budget=256,
+    )
+
+    assert report.applications
+    assert report.comparisons > len(report.applications)
+    assert report.commuted_branches > 0
+    assert report.fixed_binding_count >= 3
+    assert report.matches
+    assert report.stop_reasons
+    assert report.stop_reason is AcMatchStopReason.MATCHED
+
+
+def test_extension_catalogue_reports_matcher_budget_stop() -> None:
     from d810.mba.certified_rule_compiler import compile_add_rule_catalogue
 
     rule = compile_add_rule_catalogue().compiled_rules[0]
     catalogue = CanonicalMbaRuleCatalogue.from_rules((rule,))
     source = catalogue.patterns[0].pattern_term
 
-    with pytest.raises(CanonicalPatternComparisonBudgetExceeded):
-        catalogue.canonical_applications(source, comparison_budget=1)
+    report = catalogue.canonical_applications(source, comparison_budget=1)
+
+    assert report.applications == ()
+    assert report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET
 
 
 def test_extension_catalogue_matches_core_canonical_oracle() -> None:
@@ -213,7 +207,7 @@ def test_extension_catalogue_matches_core_canonical_oracle() -> None:
     )
     assert [
         (rule.source_name, replacement, index)
-        for rule, replacement, index in extension_result
+        for rule, replacement, index in extension_result.applications
     ] == [
         (rule.source_name, replacement, index)
         for rule, replacement, index in core_result
@@ -238,6 +232,7 @@ def test_extension_catalogue_matches_core_canonical_oracle() -> None:
     )
 
     def project(result):
+        result = getattr(result, "applications", result)
         return [
             (rule.source_name, replacement, index)
             for rule, replacement, index in result
@@ -274,7 +269,7 @@ def test_extension_catalogue_matches_core_canonical_oracle() -> None:
         for rule, replacement, index in duplicate_extension.canonical_applications(
             duplicate_candidate,
             comparison_budget=256,
-        )
+        ).applications
     ] == [
         (rule.source_name, replacement, index)
         for rule, replacement, index in duplicate_core.canonical_applications(
@@ -283,8 +278,12 @@ def test_extension_catalogue_matches_core_canonical_oracle() -> None:
         )
     ]
 
-    with pytest.raises(CanonicalPatternComparisonBudgetExceeded):
-        extension_catalogue.canonical_applications(candidate, comparison_budget=1)
+    assert (
+        extension_catalogue.canonical_applications(
+            candidate, comparison_budget=1
+        ).stop_reason
+        is AcMatchStopReason.COMPARISON_BUDGET
+    )
     with pytest.raises(CanonicalPatternComparisonBudgetExceeded):
         core_catalogue.canonical_applications(candidate, comparison_budget=1)
 

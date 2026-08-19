@@ -1,11 +1,9 @@
 """Egglog rule declarations for admitted provider-neutral MBA rules.
 
 The core repository owns rule admission and native certification.  This module
-only adapts admitted rules to the Egglog pattern catalogue used by the
-extension's bounded saturation runtime.  Native-AST matching and replacement
-are intentionally still owned by the core optimizer until that optimizer is
-moved in a later task; keeping that compatibility code here would make the
-extension depend on IDA/Hex-Rays and on the core Egglog backend.
+adapts admitted rules to the extension's typed-term catalogue.  Native capture,
+rebuild, and proof remain behind the host facade; no native-AST compatibility
+path is implemented here.
 """
 
 from __future__ import annotations
@@ -17,7 +15,6 @@ from types import MappingProxyType
 from d810.mba.extension_api import (
     AcMatchStopReason,
     CanonicalCompiledPattern,
-    CanonicalPatternComparisonBudgetExceeded,
     CanonicalPatternMalformed,
     CanonicalPatternUnsupported,
     CompiledMbaRule,
@@ -29,6 +26,32 @@ from d810.mba.extension_api import (
     require_admitted_compiled_rules,
     term_fingerprint,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalMbaRuleCatalogueReport:
+    """Facts collected while admitting one typed candidate.
+
+    The matcher reports are deliberately retained as opaque portable records:
+    callers can inspect actual comparisons, AC branch exploration, concrete
+    bindings, and stop reasons without reconstructing telemetry from the
+    number of accepted applications.
+    """
+
+    applications: tuple[tuple[CompiledMbaRule, TypedBvTerm, int], ...]
+    comparisons: int
+    commuted_branches: int
+    fixed_binding_count: int
+    matches: tuple[object, ...]
+    stop_reasons: tuple[AcMatchStopReason, ...]
+
+    @property
+    def stop_reason(self) -> AcMatchStopReason | None:
+        if AcMatchStopReason.COMPARISON_BUDGET in self.stop_reasons:
+            return AcMatchStopReason.COMPARISON_BUDGET
+        if AcMatchStopReason.MATCHED in self.stop_reasons:
+            return AcMatchStopReason.MATCHED
+        return self.stop_reasons[-1] if self.stop_reasons else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +108,7 @@ class CanonicalMbaRuleCatalogue:
         candidate: TypedBvTerm,
         *,
         comparison_budget: int = 256,
-    ) -> tuple[tuple[CompiledMbaRule, TypedBvTerm, int], ...]:
+    ) -> CanonicalMbaRuleCatalogueReport:
         if type(comparison_budget) is not int or comparison_budget <= 0:
             raise ValueError("comparison_budget must be a positive integer")
         if not isinstance(candidate, TypedBvTerm):
@@ -93,32 +116,40 @@ class CanonicalMbaRuleCatalogue:
         canonical_candidate = canonicalize_mba_term(candidate).canonical_term
         operation = canonical_candidate.operation
         if operation is None:
-            return ()
+            return CanonicalMbaRuleCatalogueReport((), 0, 0, 0, (), ())
         bucket = self.root_buckets.get(
             (operation, canonical_candidate.width), ()
         )
         if not bucket:
-            return ()
+            return CanonicalMbaRuleCatalogueReport((), 0, 0, 0, (), ())
 
         applications: list[tuple[CompiledMbaRule, TypedBvTerm, int]] = []
         comparisons = 0
+        commuted_branches = 0
+        fixed_binding_count = 0
+        matches: list[object] = []
+        stop_reasons: list[AcMatchStopReason] = []
         seen: set[tuple[int, str]] = set()
         for pattern in bucket:
             remaining = comparison_budget - comparisons
             if remaining <= 0:
-                raise CanonicalPatternComparisonBudgetExceeded(
-                    "canonical matcher comparison budget exhausted"
-                )
+                stop_reasons.append(AcMatchStopReason.COMPARISON_BUDGET)
+                break
             report = match_canonical_term_pattern(
                 pattern,
                 canonical_candidate,
                 comparison_budget=remaining,
             )
             comparisons += report.comparisons
+            commuted_branches += report.commuted_branches
+            matches.extend(report.matches)
+            fixed_binding_count += sum(
+                len(getattr(getattr(match, "bindings", None), "terms", {}))
+                for match in report.matches
+            )
+            stop_reasons.append(report.stop_reason)
             if report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
-                raise CanonicalPatternComparisonBudgetExceeded(
-                    "canonical matcher comparison budget exhausted"
-                )
+                break
             for match in report.matches:
                 bindings = dict(match.bindings.terms)
                 if not evaluate_frozen_constraints(
@@ -135,7 +166,14 @@ class CanonicalMbaRuleCatalogue:
                     continue
                 seen.add(key)
                 applications.append((pattern.rule, replacement, pattern.declaration_index))
-        return tuple(applications)
+        return CanonicalMbaRuleCatalogueReport(
+            tuple(applications),
+            comparisons,
+            commuted_branches,
+            fixed_binding_count,
+            tuple(matches),
+            tuple(stop_reasons),
+        )
 
 
 def canonical_pattern_catalogue_for_rules(
@@ -170,6 +208,7 @@ def canonical_pattern_catalogue_for_rules(
 
 __all__ = [
     "CanonicalMbaRuleCatalogue",
+    "CanonicalMbaRuleCatalogueReport",
     "CompiledMbaRule",
     "canonical_pattern_catalogue_for_rules",
 ]

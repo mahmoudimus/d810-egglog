@@ -159,12 +159,6 @@ class CompositeRewriteSemantics:
             _normalize_active_rule_names(self.active_rule_names),
         )
 
-    @property
-    def rules(self) -> tuple[RuleKey, ...]:
-        """Compatibility spelling for callers that call these rule keys."""
-
-        return self.active_rule_names
-
     def has_rule(self, family: str, source_name: str) -> bool:
         key = (family, source_name)
         return key in self.active_rule_names

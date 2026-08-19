@@ -138,11 +138,6 @@ class EgglogIdbCompositeCache:
         self._max_entries = require_positive_int(max_entries)
         self._max_bytes = require_positive_int(max_bytes)
 
-    def get(self, bucket_key: Sequence[object]) -> tuple[EgglogCompositeRewrite, ...]:
-        """Return records in one bucket, preserving the legacy API."""
-
-        return self.lookup(bucket_key).rewrites
-
     def lookup(self, bucket_key: Sequence[object]) -> EgglogCompositeCacheLookup:
         """Return valid records in one exact semantic bucket.
 

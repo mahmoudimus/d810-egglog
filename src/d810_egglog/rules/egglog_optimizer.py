@@ -17,6 +17,7 @@ from types import MappingProxyType
 
 from d810.backends.mba.extension_host import native_mba_host_services
 from d810.mba.extension_api import (
+    AcMatchStopReason,
     CanonicalPatternComparisonBudgetExceeded,
     CANONICALIZER_SCHEMA_VERSION,
     CompiledMbaRule,
@@ -43,14 +44,16 @@ from d810_egglog.composite_rewrite import (
     EgglogCompositeRewrite,
 )
 from d810_egglog.idb_cache import EgglogIdbCompositeCache
-from d810_egglog.rule_lowering import canonical_pattern_catalogue_for_rules
+from d810_egglog.rule_lowering import (
+    CanonicalMbaRuleCatalogueReport,
+    canonical_pattern_catalogue_for_rules,
+)
 from d810_egglog.structural_rules import compile_all_fixed_rotate_rules
 from d810_egglog.saturation import (
     EgglogFunctionBudget,
     EgglogExtractionBudget,
     EgglogExtractionResult,
     extraction_receipt_for_profile,
-    extract_bounded_candidate,
     extract_bounded_term,
 )
 from d810_egglog.statistics import SUPPORTED_EGGLOG_VERSION
@@ -88,7 +91,19 @@ class _CanonicalMatchTelemetry:
     comparisons: int
     matcher_backend: str = "python"
     lazy_swaps: int = 0
+    fixed_binding_count: int = 0
     matches: tuple[object, ...] = ()
+
+    @classmethod
+    def from_catalogue_report(
+        cls, report: CanonicalMbaRuleCatalogueReport
+    ) -> "_CanonicalMatchTelemetry":
+        return cls(
+            comparisons=report.comparisons,
+            lazy_swaps=report.commuted_branches,
+            fixed_binding_count=report.fixed_binding_count,
+            matches=report.matches,
+        )
 
 
 @dataclass(frozen=True)
@@ -115,10 +130,16 @@ def specialize(rule, ast, *, destination_size: int, rounds: int = 2):
             destination_size=int(destination_size),
         )
         catalogue = canonical_pattern_catalogue_for_rules((rule,))
-        applications = catalogue.canonical_applications(
+        match_report = catalogue.canonical_applications(
             candidate.term,
             comparison_budget=_MAX_PATTERN_COMPARISONS,
         )
+        if isinstance(match_report, CanonicalMbaRuleCatalogueReport):
+            if match_report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
+                return None
+            applications = match_report.applications
+        else:
+            applications = tuple(match_report)
         # The catalogue is constructed from this one admitted rule.  Its
         # canonical projection may return a semantically identical rule object
         # after normalization or reload, so object identity is not authority.
@@ -478,11 +499,9 @@ class EgglogOptimizer(PeepholeSimplificationRule):
 
         try:
             lookup = getattr(cache, "lookup", None)
-            if callable(lookup):
-                raw = lookup(bucket_key)
-            else:
-                getter = getattr(cache, "get", None)
-                raw = None if not callable(getter) else getter(bucket_key)
+            if not callable(lookup):
+                return "malformed", ()
+            raw = lookup(bucket_key)
         except Exception:
             return "malformed", ()
         if raw is None:
@@ -1147,7 +1166,7 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                 time.perf_counter() if self.collect_stage_timings else None
             )
             try:
-                applications = self._native_pattern_catalogue.canonical_applications(
+                match_result = self._native_pattern_catalogue.canonical_applications(
                     candidate.term,
                     comparison_budget=_MAX_PATTERN_COMPARISONS,
                 )
@@ -1159,12 +1178,27 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                     )
                 )
                 return None
+            if isinstance(match_result, CanonicalMbaRuleCatalogueReport):
+                if match_result.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
+                    self._record_extraction_receipt(
+                        extraction_receipt_for_profile(
+                            profile,
+                            EgraphSkipReason.CANDIDATE_BUDGET,
+                        )
+                    )
+                    return None
+                applications = match_result.applications
+                matcher_telemetry = _CanonicalMatchTelemetry.from_catalogue_report(
+                    match_result
+                )
+            else:
+                applications = tuple(match_result)
+                matcher_telemetry = _CanonicalMatchTelemetry(comparisons=0)
             matcher_elapsed_ms = (
                 None
                 if matcher_started is None
                 else (time.perf_counter() - matcher_started) * 1000.0
             )
-            matcher_telemetry = _CanonicalMatchTelemetry(len(applications))
         finally:
             self._finish_stage("native_preflight")
 
@@ -1313,16 +1347,7 @@ class EgglogOptimizer(PeepholeSimplificationRule):
                 "lazy_swaps",
                 getattr(match_result, "commuted_branches", 0),
             ),
-            native_fixed_binding_count=sum(
-                len(
-                    getattr(
-                        match.bindings,
-                        "native",
-                        getattr(match.bindings, "terms", {}),
-                    )
-                )
-                for match in match_result.matches
-            ),
+            native_fixed_binding_count=match_result.fixed_binding_count,
             native_matcher_elapsed_ms=elapsed_ms,
         )
 
@@ -1595,11 +1620,16 @@ class EgglogOptimizer(PeepholeSimplificationRule):
     ) -> EgglogExtractionResult:
         """Run one fresh bounded extraction with the configured rule objects."""
         self._ensure_catalogue_configured()
-        return extract_bounded_candidate(
+        candidate = self._host.capture_ast(
             ast,
+            destination_size=int(destination_size),
+        )
+        return extract_bounded_term(
+            candidate.term,
             self._compiled_rules,
             self.extraction_budget if budget is None else budget,
-            int(destination_size),
+            destination_size=int(destination_size),
+            profile=candidate.profile,
             catalogue=self._native_pattern_catalogue,
             egglog_runtime=egglog_runtime,
         )

@@ -16,12 +16,12 @@ from functools import partial
 from typing import Any
 
 from d810.mba.extension_api import (
+    AcMatchStopReason,
     CANONICALIZER_SCHEMA_VERSION,
     CanonicalMbaTermView,
     CanonicalPatternComparisonBudgetExceeded,
     EgraphExtractionReceipt,
     EgraphSkipReason,
-    NativeMbaUnsupportedCandidate,
     TypedBvTerm,
     assert_current_typed_term_type,
     canonicalize_ac_term,
@@ -61,14 +61,6 @@ _EGGLOG_MODULE: Any | None = None
 _EGGLOG_IMPORT_ATTEMPTED = False
 egglog: Any | None = None
 _RUNTIME_UNSET = object()
-
-
-def _native_host_services():
-    """Load the IDA-bound host only when a native operation is requested."""
-
-    from d810.backends.mba.extension_host import native_mba_host_services
-
-    return native_mba_host_services()
 
 
 class BvExpr:  # pragma: no cover - replaced when the optional extra is loaded.
@@ -409,18 +401,12 @@ def _extraction_result(
     replacement_term: TypedBvTerm | None = None,
     skip_reason: EgraphSkipReason | None = None,
     elapsed_ms: float | None = None,
-    lowering: Any | None = None,
     profile: Any | None = None,
 ) -> EgglogExtractionResult:
     elapsed = _elapsed_ms(started) if elapsed_ms is None else elapsed_ms
     family = provenance[0] if provenance is not None else None
     source_name = provenance[1] if provenance is not None else None
     aliases = provenance[2] if provenance is not None else ()
-    profile = (
-        profile
-        if profile is not None
-        else (None if lowering is None else lowering.profile)
-    )
     return EgglogExtractionResult(
         replacement_ast=replacement_ast,
         replacement_term=replacement_term,
@@ -475,27 +461,6 @@ def _extraction_result(
 
 
 _build_extraction_result = _extraction_result
-
-
-def extraction_receipt_for_lowering(
-    lowering: Any,
-    skip_reason: EgraphSkipReason,
-) -> EgraphExtractionReceipt:
-    """Return a profile-bearing no-op receipt for a known native candidate."""
-
-    profile = lowering.profile
-    return EgraphExtractionReceipt(
-        island_class=profile.island_class.value,
-        island_fingerprint=profile.fingerprint,
-        operator_count=profile.operator_count,
-        distinct_leaf_count=profile.distinct_leaf_count,
-        nonlinear_product_count=profile.nonlinear_product_count,
-        blockers=tuple(blocker.value for blocker in profile.blockers),
-        native_profile=profile_to_dict(profile),
-        skip_reason=skip_reason,
-        backend="egglog",
-        backend_version=SUPPORTED_EGGLOG_VERSION,
-    )
 
 
 def extraction_receipt_for_profile(
@@ -555,7 +520,16 @@ def _canonical_rule_applications(
     the symbolic rule inventory or registers AC identities in Egglog.
     """
 
-    return tuple(catalogue.canonical_applications(term, comparison_budget=256))
+    report = catalogue.canonical_applications(term, comparison_budget=256)
+    from .rule_lowering import CanonicalMbaRuleCatalogueReport
+
+    if isinstance(report, CanonicalMbaRuleCatalogueReport):
+        if report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
+            raise CanonicalPatternComparisonBudgetExceeded(
+                "canonical matcher comparison budget exhausted"
+            )
+        return report.applications
+    return tuple(report)
 
 
 def _extract_bounded_term(
@@ -564,8 +538,6 @@ def _extract_bounded_term(
     budget: EgglogExtractionBudget,
     destination_size: int,
     *,
-    lowering: Any | None = None,
-    native_candidate: Any | None = None,
     profile: Any | None = None,
     initial_replacements: Mapping[int, TypedBvTerm] | None = None,
     catalogue: Any | None = None,
@@ -596,7 +568,6 @@ def _extract_bounded_term(
     egraph_run_count: int | None = None
     _base_extraction_result = partial(
         _build_extraction_result,
-        lowering=lowering,
         profile=profile,
     )
 
@@ -620,7 +591,6 @@ def _extract_bounded_term(
         input_cost = canonical_view.raw_cost
         _base_extraction_result = partial(
             _build_extraction_result,
-            lowering=lowering,
             profile=profile,
             canonicalizer_version=CANONICALIZER_SCHEMA_VERSION,
             canonical_input_cost=canonical_view.canonical_cost,
@@ -938,23 +908,10 @@ def _extract_bounded_term(
                 continue
             if candidate_cost >= input_cost:
                 continue
-            if native_candidate is not None:
-                reconstruction = _native_host_services().rebuild(
-                    native_candidate, candidate.term
-                )
-                rebuilt = (
-                    None
-                    if reconstruction is None
-                    else reconstruction.replacement_ast
-                )
-            else:
-                rebuilt = candidate.term if lowering is None else None
-            if rebuilt is None:
-                continue
             selections.append(
                 (
                     _extraction_selection_key(candidate, candidate_cost),
-                    rebuilt,
+                    candidate.term,
                     candidate,
                 )
             )
@@ -981,7 +938,7 @@ def _extract_bounded_term(
             provenance=selected.provenance,
             derivation_trace=selected.derivation_trace,
             egraph_work_units=scheduled_work_units,
-            replacement_ast=None if lowering is None else replacement,
+            replacement_ast=None,
             replacement_term=selected.term,
         )
     except Exception:
@@ -1034,55 +991,6 @@ def extract_bounded_term(
     )
 
 
-def extract_bounded_candidate(
-    candidate_ast: Any,
-    rules: Any,
-    budget: EgglogExtractionBudget,
-    destination_size: int,
-    *,
-    catalogue: Any | None = None,
-    block: Any | None = None,
-    destination: Any | None = None,
-    egglog_runtime: Any = _RUNTIME_UNSET,
-) -> EgglogExtractionResult:
-    """Compatibility AST entry point for callers not using native preflight."""
-
-    assert_current_typed_term_type(TypedBvTerm)
-    try:
-        native_candidate = _native_host_services().capture_ast(
-            candidate_ast,
-            destination_size=destination_size,
-        )
-    except NativeMbaUnsupportedCandidate:
-        return _build_extraction_result(
-            started=_monotonic(),
-            input_cost=None,
-            execution_path="telemetry_only",
-            cache_status="disabled",
-            skip_reason=EgraphSkipReason.UNSUPPORTED_WIDTH_SEMANTICS,
-        )
-    except Exception:
-        return _build_extraction_result(
-            started=_monotonic(),
-            input_cost=None,
-            execution_path="telemetry_only",
-            cache_status="disabled",
-            skip_reason=EgraphSkipReason.INTERNAL_ERROR,
-        )
-    return _extract_bounded_term(
-        native_candidate.raw_term,
-        rules,
-        budget,
-        destination_size,
-        profile=native_candidate.profile,
-        native_candidate=native_candidate,
-        catalogue=catalogue,
-        block=block,
-        destination=destination,
-        egglog_runtime=egglog_runtime,
-    )
-
-
 __all__ = [
     "BvExpr",
     "DegreeExpr",
@@ -1092,7 +1000,6 @@ __all__ = [
     "EgglogExtractionResult",
     "TypedBvTerm",
     "canonicalize_ac_term",
-    "extract_bounded_candidate",
     "extract_bounded_term",
     "extraction_receipt_for_profile",
     "term_cost",

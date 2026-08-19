@@ -151,7 +151,7 @@ def test_empty_cache_loads_no_rewrites(fake_store: dict[str, object]) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
     cache = EgglogIdbCompositeCache(fake_store)
-    assert cache.get(("a" * 64, "b" * 64, 1, "13.2.0", "shadow", 32, "add", 2)) == ()
+    assert cache.lookup(("a" * 64, "b" * 64, 1, "13.2.0", "shadow", 32, "add", 2)).rewrites == ()
     assert fake_store == {}
 
 
@@ -165,7 +165,7 @@ def test_cache_round_trip_uses_dedicated_manifest_and_entry_keys(
     cache.store(rewrites[0])
 
     assert set(fake_store) == {"manifest", f"entry:{rewrites[0].template_id}"}
-    assert cache.get(rewrites[0].bucket_key) == (
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == (
         cached(rewrites[0], created_sequence=1, last_used_sequence=2),
     )
 
@@ -203,7 +203,7 @@ def test_cache_accounts_canonical_uncompressed_entry_bytes(
     assert manifest["total_bytes"] == len(stored.to_json().encode("utf-8"))
 
 
-def test_get_advances_payload_manifest_and_byte_accounting_together(
+def test_lookup_advances_payload_manifest_and_byte_accounting_together(
     fake_store: dict[str, object],
     rewrites: tuple[EgglogCompositeRewrite, ...],
 ) -> None:
@@ -211,7 +211,7 @@ def test_get_advances_payload_manifest_and_byte_accounting_together(
 
     cache = EgglogIdbCompositeCache(fake_store)
     cache.store(rewrites[0])
-    result = cache.get(rewrites[0].bucket_key)
+    result = cache.lookup(rewrites[0].bucket_key).rewrites
 
     expected = cached(rewrites[0], created_sequence=1, last_used_sequence=2)
     assert result == (expected,)
@@ -236,7 +236,7 @@ def test_cache_updates_lru_before_entry_eviction(
     cache = EgglogIdbCompositeCache(fake_store, max_entries=2)
     cache.store(rewrites[0])
     cache.store(rewrites[1])
-    assert cache.get(rewrites[0].bucket_key) == (
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == (
         cached(rewrites[0], created_sequence=1, last_used_sequence=3),
     )
 
@@ -245,11 +245,11 @@ def test_cache_updates_lru_before_entry_eviction(
     replacement = make_rewrite(semantics, 3, profile_digest="e" * 64)
     cache.store(replacement)
 
-    assert cache.get(rewrites[0].bucket_key) == (
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == (
         cached(rewrites[0], created_sequence=1, last_used_sequence=5),
     )
-    assert cache.get(rewrites[1].bucket_key) == ()
-    assert cache.get(replacement.bucket_key) == (
+    assert cache.lookup(rewrites[1].bucket_key).rewrites == ()
+    assert cache.lookup(replacement.bucket_key).rewrites == (
         cached(replacement, created_sequence=4, last_used_sequence=6),
     )
 
@@ -264,11 +264,11 @@ def test_cache_evicts_oldest_entry_before_entry_limit(
     for rewrite in rewrites:
         cache.store(rewrite)
 
-    assert cache.get(rewrites[0].bucket_key) == ()
-    assert cache.get(rewrites[1].bucket_key) == (
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == ()
+    assert cache.lookup(rewrites[1].bucket_key).rewrites == (
         cached(rewrites[1], created_sequence=2, last_used_sequence=4),
     )
-    assert cache.get(rewrites[2].bucket_key) == (
+    assert cache.lookup(rewrites[2].bucket_key).rewrites == (
         cached(rewrites[2], created_sequence=3, last_used_sequence=5),
     )
 
@@ -299,8 +299,8 @@ def test_cache_evicts_oldest_entry_before_byte_limit(
     cache.store(rewrites[0])
     cache.store(rewrites[1])
 
-    assert cache.get(rewrites[0].bucket_key) == ()
-    assert cache.get(rewrites[1].bucket_key) == (
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == ()
+    assert cache.lookup(rewrites[1].bucket_key).rewrites == (
         cached(rewrites[1], created_sequence=2, last_used_sequence=3),
     )
 
@@ -333,7 +333,7 @@ def test_sequence_digit_growth_evicts_updated_entry_without_overflow(
     }
     cache = EgglogIdbCompositeCache(fake_store, max_bytes=size_nine)
 
-    assert cache.get(rewrite.bucket_key) == ()
+    assert cache.lookup(rewrite.bucket_key).rewrites == ()
     manifest = fake_store["manifest"]
     assert isinstance(manifest, dict)
     assert manifest["sequence"] == 10
@@ -353,13 +353,13 @@ def test_corrupt_manifest_clears_only_this_feature_node_state(
     fake_store["manifest"] = {"schema_version": 999}
     fake_store["unrelated"] = {"keep": True}
 
-    assert cache.get(rewrites[0].bucket_key) == ()
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == ()
     assert "manifest" not in fake_store
     assert f"entry:{rewrites[0].template_id}" not in fake_store
     assert fake_store["unrelated"] == {"keep": True}
 
 
-def test_lookup_reports_malformed_state_while_get_stays_compatible(
+def test_lookup_reports_malformed_state(
     fake_store: dict[str, object],
     rewrites: tuple[EgglogCompositeRewrite, ...],
 ) -> None:
@@ -372,7 +372,7 @@ def test_lookup_reports_malformed_state_while_get_stays_compatible(
     result = cache.lookup(rewrites[0].bucket_key)
     assert result.status == "malformed"
     assert result.rewrites == ()
-    assert cache.get(rewrites[0].bucket_key) == ()
+    assert cache.lookup(rewrites[0].bucket_key).rewrites == ()
 
 
 @pytest.mark.parametrize(
@@ -401,7 +401,7 @@ def test_manifest_over_entry_bound_is_cleared(
     unrestricted.store(rewrites[1])
     bounded = EgglogIdbCompositeCache(fake_store, max_entries=1)
 
-    assert bounded.get(rewrites[0].bucket_key) == ()
+    assert bounded.lookup(rewrites[0].bucket_key).rewrites == ()
     assert "manifest" not in fake_store
     assert not any(key.startswith("entry:") for key in fake_store)
 
@@ -417,7 +417,7 @@ def test_manifest_over_byte_bound_is_cleared(
     size = len(rewrites[0].to_json().encode("utf-8"))
     bounded = EgglogIdbCompositeCache(fake_store, max_bytes=size - 1)
 
-    assert bounded.get(rewrites[0].bucket_key) == ()
+    assert bounded.lookup(rewrites[0].bucket_key).rewrites == ()
     assert "manifest" not in fake_store
     assert not any(key.startswith("entry:") for key in fake_store)
 
@@ -433,7 +433,7 @@ def test_corrupt_entry_removes_only_that_entry(
     cache.store(same_bucket_rewrites[1])
     fake_store[f"entry:{same_bucket_rewrites[0].template_id}"] = {"broken": object()}
 
-    assert cache.get(same_bucket_rewrites[0].bucket_key) == (
+    assert cache.lookup(same_bucket_rewrites[0].bucket_key).rewrites == (
         cached(same_bucket_rewrites[1], created_sequence=2, last_used_sequence=3),
     )
     assert f"entry:{same_bucket_rewrites[0].template_id}" not in fake_store
@@ -452,7 +452,7 @@ def test_sequence_mismatch_removes_only_that_entry(
         same_bucket_rewrites[0], created_sequence=1, last_used_sequence=99
     ).to_dict()
 
-    assert cache.get(same_bucket_rewrites[0].bucket_key) == (
+    assert cache.lookup(same_bucket_rewrites[0].bucket_key).rewrites == (
         cached(same_bucket_rewrites[1], created_sequence=2, last_used_sequence=3),
     )
     assert f"entry:{same_bucket_rewrites[0].template_id}" not in fake_store
@@ -469,8 +469,8 @@ def test_stale_semantic_fingerprint_is_an_exact_miss(
     cache = EgglogIdbCompositeCache(fake_store)
     cache.store(stale)
 
-    assert cache.get(current.bucket_key) == ()
-    assert cache.get(stale.bucket_key) == (
+    assert cache.lookup(current.bucket_key).rewrites == ()
+    assert cache.lookup(stale.bucket_key).rewrites == (
         cached(stale, created_sequence=1, last_used_sequence=2),
     )
 
@@ -488,7 +488,7 @@ def test_schema_mismatch_in_one_entry_does_not_clear_siblings(
     broken["schema_version"] = 99
     fake_store[f"entry:{same_bucket_rewrites[0].template_id}"] = broken
 
-    assert cache.get(same_bucket_rewrites[0].bucket_key) == (
+    assert cache.lookup(same_bucket_rewrites[0].bucket_key).rewrites == (
         cached(same_bucket_rewrites[1], created_sequence=2, last_used_sequence=3),
     )
 
@@ -504,7 +504,7 @@ def test_missing_entry_payload_removes_metadata_only(
     cache.store(same_bucket_rewrites[1])
     del fake_store[f"entry:{same_bucket_rewrites[0].template_id}"]
 
-    assert cache.get(same_bucket_rewrites[0].bucket_key) == (
+    assert cache.lookup(same_bucket_rewrites[0].bucket_key).rewrites == (
         cached(same_bucket_rewrites[1], created_sequence=2, last_used_sequence=3),
     )
 
@@ -570,7 +570,7 @@ def test_manifest_read_failure_clears_manifest_and_entries(
     cache.store(rewrite)
     store.fail_reads.add("manifest")
 
-    assert cache.get(rewrite.bucket_key) == ()
+    assert cache.lookup(rewrite.bucket_key).rewrites == ()
     assert "manifest" not in store
     assert f"entry:{rewrite.template_id}" not in store
 
@@ -587,7 +587,7 @@ def test_manifest_read_failure_tolerates_delete_failure_after_attempt(
     store.fail_reads.add("manifest")
     store.fail_deletes.add("manifest")
 
-    assert cache.get(rewrite.bucket_key) == ()
+    assert cache.lookup(rewrite.bucket_key).rewrites == ()
     assert "manifest" in store.delete_calls
     assert f"entry:{rewrite.template_id}" not in store
 
@@ -626,7 +626,7 @@ def test_cache_payload_write_failure_restores_previous_state(
     assert store == before
 
 
-def test_cache_get_payload_write_failure_returns_previous_state(
+def test_cache_lookup_payload_write_failure_returns_previous_state(
     semantics: ActiveSemantics,
 ) -> None:
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
@@ -638,7 +638,7 @@ def test_cache_get_payload_write_failure_returns_previous_state(
     before = deepcopy(store)
     store.fail_keys.add(f"entry:{rewrite.template_id}")
 
-    assert cache.get(rewrite.bucket_key) == (
+    assert cache.lookup(rewrite.bucket_key).rewrites == (
         cached(rewrite, created_sequence=1, last_used_sequence=1),
     )
     assert store == before

@@ -26,7 +26,6 @@ from d810_egglog.saturation import (  # noqa: E402
     EgglogExtractionResult,
     TypedBvTerm,
     extract_bounded_term,
-    extract_bounded_candidate,
 )
 from d810.mba.egraph_contracts import (  # noqa: E402
     EgraphExtractionReceipt,
@@ -598,15 +597,11 @@ def test_non_active_python_ast_is_rejected_by_cython_dispatcher():
     if not ast_dispatcher._USING_CYTHON:
         pytest.skip("Cython AST dispatcher is not active")
 
-    result = extract_bounded_candidate(
-        p_ast.AstProxy(_direct_add_candidate(ast_module=p_ast)),
-        (_rule("add", "Add_HackersDelightRule_2"),),
-        EgglogExtractionBudget(time_budget_ms=1000),
-        4,
-    )
-
-    assert result.replacement_ast is None
-    assert result.receipt.skip_reason is EgraphSkipReason.UNSUPPORTED_WIDTH_SEMANTICS
+    with pytest.raises(NativeMbaUnsupportedCandidate):
+        native_mba_host_services().capture_ast(
+            p_ast.AstProxy(_direct_add_candidate(ast_module=p_ast)),
+            destination_size=4,
+        )
 
 
 @pytest.mark.parametrize("size", (1, 2, 4, 8))
@@ -1203,12 +1198,10 @@ class TestRealNativeLearnedReplay:
                         instruction = instruction.next
                         continue
                     try:
-                        applications = (
-                            handler._native_pattern_catalogue.canonical_applications(
-                                candidate.term,
-                                comparison_budget=256,
-                            )
-                        )
+                        applications = handler._native_pattern_catalogue.canonical_applications(
+                            candidate.term,
+                            comparison_budget=256,
+                        ).applications
                     except Exception:
                         instruction = instruction.next
                         continue
@@ -1274,7 +1267,7 @@ class TestRealNativeLearnedReplay:
                 canonical_current.operation,
                 len(canonical_current.children),
             )
-            stored = handler._composite_cache.get(bucket_key)
+            stored = handler._composite_cache.lookup(bucket_key).rewrites
             assert stored, "accepted fresh rewrite was not persisted in its bucket"
 
             second = optimizer.get_optimized_instruction(block, instruction)
@@ -1439,8 +1432,8 @@ def test_replay_nonhit_status_falls_through_to_fresh(monkeypatch, cache_status):
     )
 
     class _StatusCache:
-        def get(self, _bucket_key):
-            return cache_status, ()
+        def lookup(self, _bucket_key):
+            return SimpleNamespace(status=cache_status, rewrites=())
 
     handler._composite_cache = _StatusCache()
     fresh_calls = []
@@ -1591,8 +1584,8 @@ def test_fresh_template_stores_only_after_outer_acceptance(monkeypatch):
         def __init__(self):
             self.stored = []
 
-        def get(self, _bucket_key):
-            return ()
+        def lookup(self, _bucket_key):
+            return SimpleNamespace(status="miss", rewrites=())
 
         def store(self, rewrite):
             self.stored.append(rewrite)
@@ -1641,8 +1634,8 @@ def test_rejected_or_next_attempt_clears_pending_and_storage_failure_is_safe(
     )
 
     class _FailingCache:
-        def get(self, _bucket_key):
-            return ()
+        def lookup(self, _bucket_key):
+            return SimpleNamespace(status="miss", rewrites=())
 
         def store(self, _rewrite):
             raise RuntimeError("cache unavailable")
