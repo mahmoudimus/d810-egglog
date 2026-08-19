@@ -12,7 +12,7 @@ license = "MIT"
 authors = [{ name = "d810 contributors" }]
 dependencies = [
   "d810-ng>=1.0.0b2",
-  "egglog>=13.2.0,<14",
+  "egglog==13.2.0",
 ]
 
 [project.optional-dependencies]
