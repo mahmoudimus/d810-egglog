@@ -57,17 +57,7 @@ class CompiledEgglogStructuralRule:
 
     @property
     def semantic_fingerprint(self) -> str:
-        return "|".join(
-            (
-                self.family,
-                self.source_name,
-                str(self.width),
-                self.direction,
-                str(self.count),
-                term_fingerprint(self.pattern),
-                term_fingerprint(self.replacement),
-            )
-        )
+        return _extension_api.structural_rule_semantic_fingerprint(self)
 
 
 @dataclass(frozen=True, slots=True)

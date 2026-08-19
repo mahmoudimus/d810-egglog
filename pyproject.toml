@@ -7,7 +7,7 @@ name = "d810-egglog"
 version = "0.1.0"
 description = "Optional Egglog e-graph backend for d810-ng"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "d810 contributors" }]
 dependencies = [

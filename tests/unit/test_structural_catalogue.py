@@ -277,11 +277,182 @@ def test_public_enrollment_rejects_forged_structural_equivalence():
         proof_verdict=True,
     )
 
-    with pytest.raises(ValueError, match="proof"):
+    with pytest.raises(ValueError, match="structural rule"):
         enroll_structural_rule(forged)
     assert not is_enrolled_structural_rule(forged)
     with pytest.raises(ValueError, match="admitted"):
         structural_catalogue_for_rules((forged,))
+
+
+def test_structural_fingerprint_delegates_to_portable_api(monkeypatch):
+    from d810.mba import extension_api
+    from d810_egglog.structural_rules import compile_fixed_rotate_rules
+
+    rule = compile_fixed_rotate_rules(width=8, direction="rol")[0].compiled_rule
+    assert rule is not None
+    monkeypatch.setattr(
+        extension_api,
+        "structural_rule_semantic_fingerprint",
+        lambda _rule: "portable-fingerprint",
+    )
+
+    assert rule.semantic_fingerprint == "portable-fingerprint"
+
+
+def test_alias_enrollment_reuses_proof_for_each_unique_identity(monkeypatch):
+    from d810.mba import extension_api
+    from d810_egglog.structural_rules import (
+        compile_fixed_rotate_rules,
+        structural_catalogue_for_rules,
+    )
+
+    declarations = (
+        compile_fixed_rotate_rules(width=8, direction="rol")[0],
+        compile_fixed_rotate_rules(width=8, direction="ror")[-1],
+    )
+    rules = tuple(
+        receipt.compiled_rule
+        for receipt in declarations
+        if receipt.compiled_rule is not None
+    )
+    original_proof = extension_api.prove_typed_term_equivalence
+    proof_calls = 0
+
+    def count_proofs(pattern, replacement):
+        nonlocal proof_calls
+        proof_calls += 1
+        return original_proof(pattern, replacement)
+
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", count_proofs)
+    for rule in rules:
+        extension_api.enroll_structural_rule(rule)
+    structural_catalogue_for_rules(rules)
+
+    assert proof_calls == len(rules)
+
+
+def test_changed_proof_function_forces_alias_reproof(monkeypatch):
+    from d810.mba import extension_api
+    from d810_egglog.structural_rules import (
+        compile_fixed_rotate_rules,
+        structural_catalogue_for_rules,
+    )
+
+    rule = compile_fixed_rotate_rules(width=8, direction="rol")[0].compiled_rule
+    assert rule is not None
+    paired = compile_fixed_rotate_rules(width=8, direction="ror")[-1].compiled_rule
+    assert paired is not None
+    original_proof = extension_api.prove_typed_term_equivalence
+    first_calls = 0
+    second_calls = 0
+
+    def first_proof(pattern, replacement):
+        nonlocal first_calls
+        first_calls += 1
+        return original_proof(pattern, replacement)
+
+    def second_proof(pattern, replacement):
+        nonlocal second_calls
+        second_calls += 1
+        return original_proof(pattern, replacement)
+
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", first_proof)
+    structural_catalogue_for_rules((rule, paired))
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", second_proof)
+    structural_catalogue_for_rules((rule, paired))
+
+    assert first_calls == 1
+    assert second_calls == 1
+
+
+def test_public_enrollment_rejects_equivalent_duck_with_dishonest_fingerprint(
+    monkeypatch,
+):
+    from d810.mba import extension_api
+    from d810.mba.certified_catalogue import build_certified_catalogue_snapshot
+    from d810_egglog.structural_rules import build_rotate_identity
+
+    pattern, replacement = build_rotate_identity(8, "rol", 1)
+
+    class EquivalentDuck:
+        source_name = "duck-rol-8-1"
+        width = 8
+        direction = "rol"
+        count = 1
+        family = "fixed_rotate"
+        aliases = ("duck-alias",)
+        proof_widths = (8,)
+        proof_verdict = True
+        semantic_fingerprint = "dishonest-fingerprint"
+
+        def __init__(self):
+            self.pattern = pattern
+            self.replacement = replacement
+
+    proof_calls = 0
+
+    def unexpected_proof(_pattern, _replacement):
+        nonlocal proof_calls
+        proof_calls += 1
+        return True
+
+    monkeypatch.setattr(
+        extension_api, "prove_typed_term_equivalence", unexpected_proof
+    )
+    forged = EquivalentDuck()
+
+    with pytest.raises(ValueError, match="fingerprint"):
+        extension_api.enroll_structural_rule(forged)
+    assert proof_calls == 0
+    snapshot = build_certified_catalogue_snapshot(
+        (), compiler_version="forged-duck", structural_rules=(forged,)
+    )
+    assert snapshot.structural_authorizable is False
+    assert snapshot.structural_rule_fingerprints == ()
+
+
+def test_mutating_enrolled_duck_invalidates_structural_authorization(monkeypatch):
+    from d810.mba import extension_api
+    from d810.mba.certified_catalogue import build_certified_catalogue_snapshot
+    from d810_egglog.structural_rules import build_rotate_identity
+
+    class MutableDuck:
+        source_name = "mutable-rotate"
+        width = 8
+        direction = "rol"
+        count = 1
+        family = "fixed_rotate"
+        aliases = ()
+        proof_widths = (8,)
+        proof_verdict = True
+
+    pattern, replacement = build_rotate_identity(8, "rol", 1)
+    duck = MutableDuck()
+    duck.pattern = pattern
+    duck.replacement = replacement
+    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(
+        duck
+    )
+    monkeypatch.setattr(
+        extension_api, "prove_typed_term_equivalence", lambda *_terms: True
+    )
+
+    extension_api.enroll_structural_rule(duck)
+    assert extension_api.is_enrolled_structural_rule(duck)
+
+    duck.direction = "ror"
+    duck.count = 2
+    duck.pattern, duck.replacement = build_rotate_identity(8, "ror", 2)
+    duck.semantic_fingerprint = extension_api.structural_rule_semantic_fingerprint(
+        duck
+    )
+
+    assert not extension_api.is_enrolled_structural_rule(duck)
+    snapshot = build_certified_catalogue_snapshot(
+        (), compiler_version="mutated-duck", structural_rules=(duck,)
+    )
+    assert snapshot.structural_authorizable is False
+    assert snapshot.structural_rule_fingerprints == ()
 
 
 def test_fixed_rotate_inventory_reuses_certification_across_live_requests(monkeypatch):

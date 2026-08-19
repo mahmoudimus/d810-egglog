@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 
@@ -18,6 +19,15 @@ def test_manifest_has_the_exact_backend_declaration() -> None:
         "rules": ("d810_egglog.rules.egglog_optimizer",),
         "implements": {"mba-egraph": "EgglogOptimizer"},
     }
+
+
+def test_project_metadata_declares_the_runtime_python_floor() -> None:
+    extension_root = Path(__file__).parents[2]
+    metadata = tomllib.loads(
+        (extension_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert metadata["project"]["requires-python"] == ">=3.11"
 
 
 def test_root_manifest_import_does_not_load_runtime_or_optional_dependencies() -> None:
