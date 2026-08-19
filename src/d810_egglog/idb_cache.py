@@ -481,18 +481,16 @@ class EgglogIdbCompositeCache:
                 pass
 
     def _feature_keys(self) -> list[str]:
-        feature_keys: set[str] = set()
+        # The manifest is part of this feature's state even when reading it
+        # fails.  Cleanup must still attempt an idempotent delete rather than
+        # retrying the failing read and leaving the manifest behind.
+        feature_keys: set[str] = {MANIFEST_KEY}
         try:
             keys = self._store.keys(prefix=ENTRY_PREFIX)
         except Exception:
             keys = ()
         try:
             feature_keys.update(str(key) for key in keys)
-        except Exception:
-            pass
-        try:
-            if self._store.get_json(MANIFEST_KEY) is not None:
-                feature_keys.add(MANIFEST_KEY)
         except Exception:
             pass
         return sorted(feature_keys)

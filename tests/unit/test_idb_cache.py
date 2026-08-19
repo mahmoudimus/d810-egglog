@@ -30,6 +30,22 @@ class DictPersistence(dict[str, object]):
 
 CATALOGUE_DIGEST = "a" * 64
 PROFILE_DIGEST = "b" * 64
+GOLDEN_REWRITE_JSON = (
+    '{"canonicalizer_version":1,"catalogue_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+    '"coarse_arity":2,"created_sequence":0,"derivation_trace":[["add","R",[]]],'
+    '"egglog_version":"13.2.0","egraph_run_count":null,"input_template":{"children":[{"children":[{'
+    '"children":[],"leaf_slot":0,"operation":null,"shift_count":null,"value":null,"width":32},{'
+    '"children":[],"leaf_slot":0,"operation":null,"shift_count":null,"value":null,"width":32}],'
+    '"leaf_slot":null,"operation":"add","shift_count":null,"value":null,"width":32},{"children":[],'
+    '"leaf_slot":0,"operation":null,"shift_count":null,"value":null,"width":32}],"leaf_slot":null,'
+    '"operation":"add","shift_count":null,"value":null,"width":32},"last_used_sequence":0,'
+    '"output_cost":[1,3],"output_template":{"children":[{"children":[],"leaf_slot":null,'
+    '"operation":null,"shift_count":null,"value":3,"width":32},{"children":[],"leaf_slot":0,'
+    '"operation":null,"shift_count":null,"value":null,"width":32}],"leaf_slot":null,"operation":"mul",'
+    '"shift_count":null,"value":null,"width":32},"profile_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",'
+    '"proof_mode":"shadow","raw_input_cost":[2,5],"root_operation":"add","schema_version":2,'
+    '"template_id":"ef2f3d53b7596b2e5effb723c6f553b275515fca90ec7ba60a73b6bf9b42b152","width":32}'
+)
 
 
 def leaf(name: str, *, width: int = 32) -> TypedBvTerm:
@@ -85,6 +101,12 @@ def make_rewrite(
         derivation_trace=(("add", "R", ()),),
         semantics=active,
     )
+
+
+def test_legacy_wire_payload_matches_fixed_golden(
+    semantics: ActiveSemantics,
+) -> None:
+    assert make_rewrite(semantics, 0).to_json() == GOLDEN_REWRITE_JSON
 
 
 def cached(
@@ -516,6 +538,58 @@ class FailingStore(DictPersistence):
         if key in self.fail_keys:
             raise OSError(f"write blocked for {key}")
         super().__setitem__(key, value)
+
+
+class FailingReadDeleteStore(DictPersistence):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+        self.fail_reads: set[str] = set()
+        self.fail_deletes: set[str] = set()
+        self.delete_calls: list[str] = []
+
+    def get_json(self, key: str):
+        if key in self.fail_reads:
+            raise OSError(f"read blocked for {key}")
+        return super().get_json(key)
+
+    def delete(self, key: str) -> None:
+        self.delete_calls.append(key)
+        if key in self.fail_deletes:
+            raise OSError(f"delete blocked for {key}")
+        super().delete(key)
+
+
+def test_manifest_read_failure_clears_manifest_and_entries(
+    semantics: ActiveSemantics,
+) -> None:
+    from d810_egglog.idb_cache import EgglogIdbCompositeCache
+
+    store = FailingReadDeleteStore()
+    cache = EgglogIdbCompositeCache(store)
+    rewrite = make_rewrite(semantics, 0)
+    cache.store(rewrite)
+    store.fail_reads.add("manifest")
+
+    assert cache.get(rewrite.bucket_key) == ()
+    assert "manifest" not in store
+    assert f"entry:{rewrite.template_id}" not in store
+
+
+def test_manifest_read_failure_tolerates_delete_failure_after_attempt(
+    semantics: ActiveSemantics,
+) -> None:
+    from d810_egglog.idb_cache import EgglogIdbCompositeCache
+
+    store = FailingReadDeleteStore()
+    cache = EgglogIdbCompositeCache(store)
+    rewrite = make_rewrite(semantics, 0)
+    cache.store(rewrite)
+    store.fail_reads.add("manifest")
+    store.fail_deletes.add("manifest")
+
+    assert cache.get(rewrite.bucket_key) == ()
+    assert "manifest" in store.delete_calls
+    assert f"entry:{rewrite.template_id}" not in store
 
 
 def test_cache_write_failure_does_not_leave_a_partial_entry(

@@ -1,28 +1,74 @@
 from __future__ import annotations
 
 import ast
-from copy import deepcopy
 import importlib
 import inspect
+import math
+from collections.abc import Mapping
 
 import pytest
 
 from d810.mba.extension_api import TypedBvTerm
 
 
-class MemoryPersistence(dict[str, object]):
-    def get_json(self, key: str):
-        value = self.get(key)
-        return deepcopy(value) if isinstance(value, dict) else None
+def _copy_json(value: object, active: set[int] | None = None) -> object:
+    if value is None or type(value) in {bool, int, str}:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise TypeError("JSON values must contain finite floats")
+        return value
+    active = set() if active is None else active
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in active:
+            raise TypeError("JSON values must not contain cycles")
+        active.add(identity)
+        try:
+            if any(type(key) is not str for key in value):
+                raise TypeError("JSON mapping keys must be strings")
+            return {key: _copy_json(item, active) for key, item in value.items()}
+        finally:
+            active.remove(identity)
+    if type(value) is list:
+        identity = id(value)
+        if identity in active:
+            raise TypeError("JSON values must not contain cycles")
+        active.add(identity)
+        try:
+            return [_copy_json(item, active) for item in value]
+        finally:
+            active.remove(identity)
+    raise TypeError("JSON values must be scalar, list, or mapping")
 
-    def put_json(self, key: str, value):
-        self[key] = deepcopy(dict(value))
+
+class StrictJsonPersistence:
+    """Host-style persistence that rejects arbitrary/native values."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, dict[str, object]] = {}
+
+    def get_json(self, key: str):
+        if type(key) is not str or not key:
+            raise ValueError("invalid persistence key")
+        value = self.values.get(key)
+        return None if value is None else _copy_json(value)
+
+    def put_json(self, key: str, value: Mapping[str, object]) -> None:
+        if type(key) is not str or not key:
+            raise ValueError("invalid persistence key")
+        copied = _copy_json(value)
+        if not isinstance(copied, dict):
+            raise TypeError("persistence values must be mappings")
+        self.values[key] = copied
 
     def delete(self, key: str) -> None:
-        self.pop(key, None)
+        self.values.pop(key, None)
 
-    def keys(self, *, prefix: str = ""):
-        return tuple(sorted(key for key in super().keys() if key.startswith(prefix)))
+    def keys(self, *, prefix: str = "") -> tuple[str, ...]:
+        if type(prefix) is not str:
+            raise TypeError("invalid persistence prefix")
+        return tuple(sorted(key for key in self.values if key.startswith(prefix)))
 
 
 def _leaf(name: str) -> TypedBvTerm:
@@ -35,28 +81,12 @@ def _binary(operation: str, left: TypedBvTerm, right: TypedBvTerm) -> TypedBvTer
 
 class Host:
     def __init__(self) -> None:
-        self.storage = MemoryPersistence()
-        self.proof_verdict = False
-        self.proof_calls = []
-        self.mutations = []
+        self.storage = StrictJsonPersistence()
+        self.requested_namespaces: list[str] = []
 
     def persistence(self, namespace: str):
-        assert namespace == "live-cache-safety"
+        self.requested_namespaces.append(namespace)
         return self.storage
-
-    def rebuild(self, candidate: object, replacement: TypedBvTerm):
-        return (candidate, replacement)
-
-    def prove(
-        self,
-        candidate: object,
-        reconstruction: object,
-        *,
-        certificate: str | None,
-        known_constants: object | None,
-    ) -> bool:
-        self.proof_calls.append((candidate, reconstruction))
-        return self.proof_verdict
 
 
 def test_cache_uses_host_persistence_instead_of_netnode() -> None:
@@ -69,7 +99,7 @@ def test_cache_uses_host_persistence_instead_of_netnode() -> None:
     assert "d810.mba.extension_api" in imported_modules
 
 
-def test_live_cache_rebinds_and_proof_gates_native_mutation() -> None:
+def test_live_cache_persists_json_rebinds_leaves_and_rejects_semantic_drift() -> None:
     from d810_egglog.composite_rewrite import ActiveSemantics, EgglogCompositeRewrite
     from d810_egglog.idb_cache import EgglogIdbCompositeCache
 
@@ -94,13 +124,41 @@ def test_live_cache_rebinds_and_proof_gates_native_mutation() -> None:
     )
 
     host = Host()
-    cache = EgglogIdbCompositeCache(host.persistence("live-cache-safety"))
+    cache = EgglogIdbCompositeCache(host.persistence(EgglogIdbCompositeCache.NAMESPACE))
+    assert host.requested_namespaces == [EgglogIdbCompositeCache.NAMESPACE]
     cache.store(rewrite)
-    persisted = repr(host.storage)
-    assert "historical" not in persisted
-    assert "mop" not in persisted
-    assert "cfunc" not in persisted
-    assert "source_ast" not in persisted
+
+    with pytest.raises(TypeError, match="JSON"):
+        host.storage.put_json("native", {"cfunc": object()})
+    with pytest.raises(TypeError, match="strings"):
+        host.storage.put_json("native", {1: "not-json"})  # type: ignore[dict-item]
+
+    entry = host.storage.get_json(f"entry:{rewrite.template_id}")
+    assert entry is not None
+    assert set(entry) == {
+        "schema_version",
+        "template_id",
+        "canonicalizer_version",
+        "catalogue_digest",
+        "profile_digest",
+        "egglog_version",
+        "proof_mode",
+        "width",
+        "root_operation",
+        "coarse_arity",
+        "input_template",
+        "output_template",
+        "raw_input_cost",
+        "output_cost",
+        "derivation_trace",
+        "egraph_run_count",
+        "created_sequence",
+        "last_used_sequence",
+    }
+    assert entry["template_id"] == rewrite.template_id
+    assert entry["input_template"]["children"][0]["children"][0]["leaf_slot"] == 0
+    assert entry["output_template"]["children"][1]["leaf_slot"] == 0
+    assert "leaf_key" not in entry["input_template"]
 
     fresh_leaf = _leaf("fresh")
     fresh_term = _binary("add", _binary("add", fresh_leaf, fresh_leaf), fresh_leaf)
@@ -111,30 +169,50 @@ def test_live_cache_rebinds_and_proof_gates_native_mutation() -> None:
     replacement = loaded[0].materialize(bindings, semantics=semantics)
     assert replacement.children[1] is fresh_leaf
 
-    drifted = ActiveSemantics(
-        canonicalizer_version=2,
-        catalogue_digest=semantics.catalogue_digest,
-        profile_digest=semantics.profile_digest,
-        egglog_version=semantics.egglog_version,
-        proof_mode=semantics.proof_mode,
-        active_rule_names=semantics.active_rule_names,
+    drifted = (
+        ActiveSemantics(
+            canonicalizer_version=2,
+            catalogue_digest=semantics.catalogue_digest,
+            profile_digest=semantics.profile_digest,
+            egglog_version=semantics.egglog_version,
+            proof_mode=semantics.proof_mode,
+            active_rule_names=semantics.active_rule_names,
+        ),
+        ActiveSemantics(
+            canonicalizer_version=semantics.canonicalizer_version,
+            catalogue_digest="c" * 64,
+            profile_digest=semantics.profile_digest,
+            egglog_version=semantics.egglog_version,
+            proof_mode=semantics.proof_mode,
+            active_rule_names=semantics.active_rule_names,
+        ),
+        ActiveSemantics(
+            canonicalizer_version=semantics.canonicalizer_version,
+            catalogue_digest=semantics.catalogue_digest,
+            profile_digest=semantics.profile_digest,
+            egglog_version="13.2.1",
+            proof_mode=semantics.proof_mode,
+            active_rule_names=semantics.active_rule_names,
+        ),
+        ActiveSemantics(
+            canonicalizer_version=semantics.canonicalizer_version,
+            catalogue_digest=semantics.catalogue_digest,
+            profile_digest=semantics.profile_digest,
+            egglog_version=semantics.egglog_version,
+            proof_mode="legacy",
+            active_rule_names=semantics.active_rule_names,
+        ),
+        ActiveSemantics(
+            canonicalizer_version=semantics.canonicalizer_version,
+            catalogue_digest=semantics.catalogue_digest,
+            profile_digest=semantics.profile_digest,
+            egglog_version=semantics.egglog_version,
+            proof_mode=semantics.proof_mode,
+            active_rule_names=(("add", "other"),),
+        ),
     )
-    with pytest.raises(ValueError, match="stale"):
-        loaded[0].match(fresh_term, semantics=drifted)
-
-    reconstruction = host.rebuild(object(), replacement)
-    assert reconstruction is not None
-    assert (
-        host.prove(object(), reconstruction, certificate=None, known_constants=None)
-        is False
-    )
-    assert host.proof_calls
-    assert host.mutations == []
-
-    host.proof_verdict = True
-    candidate = object()
-    reconstruction = host.rebuild(candidate, replacement)
-    assert reconstruction is not None
-    if host.prove(candidate, reconstruction, certificate=None, known_constants=None):
-        host.mutations.append(replacement)
-    assert host.mutations == [replacement]
+    for stale in drifted[:-1]:
+        with pytest.raises(ValueError, match="stale"):
+            loaded[0].match(fresh_term, semantics=stale)
+    with pytest.raises(ValueError, match="absent from active semantics"):
+        loaded[0].match(fresh_term, semantics=drifted[-1])
