@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from d810.mba.typed_term import TypedBvTerm, fixed_shift_term
@@ -331,6 +333,32 @@ def test_alias_enrollment_reuses_proof_for_each_unique_identity(monkeypatch):
     assert proof_calls == len(rules)
 
 
+def test_proof_cache_ignores_provenance_only_fields(monkeypatch):
+    from d810.mba import extension_api
+    from d810_egglog.structural_rules import compile_fixed_rotate_rules
+
+    rule = compile_fixed_rotate_rules(width=8, direction="rol")[0].compiled_rule
+    assert rule is not None
+    equivalent = replace(
+        rule,
+        source_name="provenance-only-name",
+        aliases=("provenance-alias",),
+    )
+    original_proof = extension_api.prove_typed_term_equivalence
+    proof_calls = 0
+
+    def count_proofs(pattern, replacement):
+        nonlocal proof_calls
+        proof_calls += 1
+        return original_proof(pattern, replacement)
+
+    monkeypatch.setattr(extension_api, "prove_typed_term_equivalence", count_proofs)
+    extension_api.enroll_structural_rule(rule)
+    extension_api.enroll_structural_rule(equivalent)
+
+    assert proof_calls == 1
+
+
 def test_changed_proof_function_forces_alias_reproof(monkeypatch):
     from d810.mba import extension_api
     from d810_egglog.structural_rules import (
@@ -406,6 +434,60 @@ def test_public_enrollment_rejects_equivalent_duck_with_dishonest_fingerprint(
     assert proof_calls == 0
     snapshot = build_certified_catalogue_snapshot(
         (), compiler_version="forged-duck", structural_rules=(forged,)
+    )
+    assert snapshot.structural_authorizable is False
+    assert snapshot.structural_rule_fingerprints == ()
+
+
+@pytest.mark.parametrize("malformation", ["terminal_children", "operator_metadata"])
+def test_public_enrollment_rejects_malformed_nested_typed_terms(
+    monkeypatch, malformation
+):
+    from d810.mba import extension_api
+    from d810.mba.certified_catalogue import build_certified_catalogue_snapshot
+    from d810_egglog.structural_rules import (
+        CompiledEgglogStructuralRule,
+        build_rotate_identity,
+    )
+
+    pattern, replacement = build_rotate_identity(8, "rol", 1)
+    if malformation == "terminal_children":
+        leaf = pattern.children[0].children[0]
+        object.__setattr__(
+            leaf,
+            "children",
+            (TypedBvTerm(None, 8, value=0),),
+        )
+    else:
+        object.__setattr__(pattern.children[0], "value", 0)
+    rule = CompiledEgglogStructuralRule(
+        source_name=f"malformed-{malformation}",
+        width=8,
+        direction="rol",
+        count=1,
+        pattern=pattern,
+        replacement=replacement,
+        proof_verdict=True,
+    )
+    proof_calls = 0
+
+    def unexpected_proof(_pattern, _replacement):
+        nonlocal proof_calls
+        proof_calls += 1
+        return True
+
+    monkeypatch.setattr(
+        extension_api, "prove_typed_term_equivalence", unexpected_proof
+    )
+
+    with pytest.raises(ValueError, match="TypedBvTerm"):
+        extension_api.enroll_structural_rule(rule)
+    assert proof_calls == 0
+    snapshot = build_certified_catalogue_snapshot(
+        (),
+        compiler_version=f"malformed-{malformation}",
+        structural_rules=(rule,),
+        runtime_semantics_digest="a" * 64,
     )
     assert snapshot.structural_authorizable is False
     assert snapshot.structural_rule_fingerprints == ()
