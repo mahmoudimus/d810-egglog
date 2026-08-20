@@ -109,12 +109,19 @@ class CanonicalMbaRuleCatalogue:
         candidate: TypedBvTerm,
         *,
         comparison_budget: int = 256,
+        canonicalize_candidate: bool = True,
     ) -> CanonicalMbaRuleCatalogueReport:
         if type(comparison_budget) is not int or comparison_budget <= 0:
             raise ValueError("comparison_budget must be a positive integer")
+        if type(canonicalize_candidate) is not bool:
+            raise TypeError("canonicalize_candidate must be a bool")
         if not isinstance(candidate, TypedBvTerm):
             raise TypeError("candidate must be a TypedBvTerm")
-        canonical_candidate = canonicalize_mba_term(candidate).canonical_term
+        canonical_candidate = (
+            canonicalize_mba_term(candidate).canonical_term
+            if canonicalize_candidate
+            else candidate
+        )
         operation = canonical_candidate.operation
         if operation is None:
             return CanonicalMbaRuleCatalogueReport((), 0, 0, 0, (), ())

@@ -15,7 +15,7 @@ import functools
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 
-from d810.mba import extension_api
+import d810.mba.extension_api as extension_api
 from d810.mba.extension_api import (
     CanonicalPatternComparisonBudgetExceeded,
     canonicalize_ac_term,

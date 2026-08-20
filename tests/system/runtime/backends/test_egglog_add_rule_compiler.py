@@ -501,7 +501,11 @@ def test_specializes_complement_guard_and_materializes_derived_constant():
 
     specialization = _prove("Add_SpecialConstantRule_3", candidate)
 
-    assert specialization.replacement_ast.right.value == 0
+    replacement_children = (
+        specialization.replacement_ast.left,
+        specialization.replacement_ast.right,
+    )
+    assert any(child is not None and child.value == 0 for child in replacement_children)
 
 
 @pytest.mark.parametrize("rule_name", ["Add_OllvmRule_2", "Add_OllvmRule_4"])

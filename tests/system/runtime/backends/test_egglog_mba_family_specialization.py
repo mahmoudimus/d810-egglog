@@ -165,7 +165,7 @@ def _prove(
     specialization = specialize(rule, candidate, destination_size=4)
 
     assert specialization is not None
-    assert specialization.family == family
+    assert specialization.rule.family == family
     assert specialization.rule.proof_widths == CERTIFICATE_WIDTHS
     assert 32 in specialization.rule.proof_widths
     assert _node_count(specialization.replacement_ast) < _node_count(candidate)
@@ -248,7 +248,13 @@ def test_every_compiled_guard_shape_executes_with_real_bindings(
     )
 
     if source_name == "Add_SpecialConstantRule_3":
-        assert specialization.replacement_ast.right.value == 0
+        replacement_children = (
+            specialization.replacement_ast.left,
+            specialization.replacement_ast.right,
+        )
+        assert any(
+            child is not None and child.value == 0 for child in replacement_children
+        )
 
 
 def test_shared_guarded_add_rewrites_fit_the_64_eclass_admission_cap():

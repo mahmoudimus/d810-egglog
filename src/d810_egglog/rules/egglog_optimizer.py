@@ -195,6 +195,24 @@ def specialize(rule, ast, *, destination_size: int):
             applications = match_report.applications
         else:
             applications = tuple(match_report)
+        # Signed constrained constants can change the canonical root (for
+        # example, ``sub(..., -2 * ...)`` becomes ``add(..., 2 * ...)``), while
+        # the certified pattern remains rooted at the original operation.
+        if not applications and candidate.raw_term is not None:
+            raw_match_report = catalogue.canonical_applications(
+                candidate.raw_term,
+                comparison_budget=_MAX_PATTERN_COMPARISONS,
+                canonicalize_candidate=False,
+            )
+            if isinstance(
+                raw_match_report,
+                (CanonicalMbaRuleCatalogueReport, StructuralRuleCatalogueReport),
+            ):
+                if raw_match_report.stop_reason is AcMatchStopReason.COMPARISON_BUDGET:
+                    return None
+                applications = raw_match_report.applications
+            else:
+                applications = tuple(raw_match_report)
         # The catalogue is constructed from this one admitted rule.  Its
         # canonical projection may return a semantically identical rule object
         # after normalization or reload, so object identity is not authority.
