@@ -69,6 +69,15 @@ def _native_handler(*, time_budget_ms: int, learned_replay_enabled: bool = False
     return handler
 
 
+def _interactive_instruction(*, historical: bool = False):
+    """Use the smallest supported width for the wall-clock-bounded proof lane."""
+
+    return _native_semantic_instruction(
+        historical=historical,
+        destination_size=1,
+    )
+
+
 def test_native_budget_receipt_and_interactive_extraction(monkeypatch, copy_of_idb):
     """Telemetry-only admission never loads Egglog; interactive extraction does."""
 
@@ -82,7 +91,7 @@ def test_native_budget_receipt_and_interactive_extraction(monkeypatch, copy_of_i
     telemetry.begin_provider_outcome_capture()
     try:
         assert (
-            telemetry._check_and_replace(_native_semantic_instruction(), blk=None)
+            telemetry._check_and_replace(_interactive_instruction(), blk=None)
             is None
         )
         telemetry_receipt = telemetry.last_extraction_receipt
@@ -100,7 +109,7 @@ def test_native_budget_receipt_and_interactive_extraction(monkeypatch, copy_of_i
     interactive.begin_provider_outcome_capture()
     try:
         assert (
-            interactive._check_and_replace(_native_semantic_instruction(), blk=None)
+            interactive._check_and_replace(_interactive_instruction(), blk=None)
             is not None
         )
         receipt = interactive.last_extraction_receipt
@@ -224,12 +233,15 @@ def test_native_replay_hit_stale_miss_and_outer_acceptance(copy_of_idb):
     first = _native_handler(time_budget_ms=1000, learned_replay_enabled=True)
     cache = _MemoryRewriteCache()
     first._composite_cache = cache
-    first_instruction = _native_semantic_instruction()
+    first_instruction = _interactive_instruction()
     from d810.hexrays.ir.minsn_utils import minsn_to_ast
 
     first_ast = minsn_to_ast(first_instruction)
     assert first_ast is not None
-    _lowering, replacement_term = _native_candidate_terms(first_ast)
+    _lowering, replacement_term = _native_candidate_terms(
+        first_ast,
+        destination_size=1,
+    )
 
     first.begin_provider_outcome_capture()
     try:
@@ -250,7 +262,7 @@ def test_native_replay_hit_stale_miss_and_outer_acceptance(copy_of_idb):
     replay.begin_provider_outcome_capture()
     try:
         assert replay._check_and_replace(
-            _native_semantic_instruction(historical=True), blk=None
+            _interactive_instruction(historical=True), blk=None
         )
         replay_receipt = replay.last_extraction_receipt
         assert replay_receipt is not None
@@ -276,7 +288,7 @@ def test_native_replay_hit_stale_miss_and_outer_acceptance(copy_of_idb):
     fallback.begin_provider_outcome_capture()
     try:
         assert (
-            fallback._check_and_replace(_native_semantic_instruction(), blk=None)
+            fallback._check_and_replace(_interactive_instruction(), blk=None)
             is not None
         )
         fallback_receipt = fallback.last_extraction_receipt

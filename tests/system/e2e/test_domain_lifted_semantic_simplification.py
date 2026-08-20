@@ -363,19 +363,23 @@ def test_task13_native_source_truth_vectors(tmp_path: Path) -> None:
             assert shape(*arguments) == truth(*arguments), (case_id, arguments)
 
 
-def _native_semantic_instruction(*, historical: bool = False):
+def _native_semantic_instruction(
+    *, historical: bool = False, destination_size: int = 4
+):
     """Build the native minsn_t corresponding to the semantic AST fixture."""
 
     import ida_hexrays
 
+    mask = (1 << (destination_size * 8)) - 1
+
     def number(value: int):
         mop = ida_hexrays.mop_t()
-        mop.make_number(value & 0xFFFFFFFF, 4)
+        mop.make_number(value & mask, destination_size)
         return mop
 
     def register(index: int):
         mop = ida_hexrays.mop_t()
-        mop.make_reg(index, 4)
+        mop.make_reg(index, destination_size)
         return mop
 
     def nested(opcode, left, right):
@@ -384,10 +388,10 @@ def _native_semantic_instruction(*, historical: bool = False):
         inner.l = left
         inner.r = right
         inner.d = ida_hexrays.mop_t()
-        inner.d.make_number(0, 4)
+        inner.d.make_number(0, destination_size)
         mop = ida_hexrays.mop_t()
         mop.create_from_insn(inner)
-        mop.size = 4
+        mop.size = destination_size
         return mop
 
     x = register(1)
@@ -404,14 +408,17 @@ def _native_semantic_instruction(*, historical: bool = False):
     instruction.l = common_sum
     instruction.r = coefficient
     instruction.d = ida_hexrays.mop_t()
-    instruction.d.make_reg(0, 4)
+    instruction.d.make_reg(0, destination_size)
     return instruction
 
 
-def _native_candidate_terms(candidate):
+def _native_candidate_terms(candidate, *, destination_size: int = 4):
     from d810.backends.mba.hexrays_island import lower_hexrays_island
 
-    lowering = lower_hexrays_island(candidate, destination_size=4)
+    lowering = lower_hexrays_island(
+        candidate,
+        destination_size=destination_size,
+    )
     assert lowering.term is not None, lowering.profile
     leaves = []
 
