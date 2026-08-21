@@ -3,13 +3,48 @@ requires = ["setuptools>=77.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
+# Must match the PyPI Trusted Publisher registration exactly.
 name = "d810-egglog"
 version = "0.1.0"
-description = "Optional Egglog e-graph backend for d810-ng"
+description = "Optional Egglog e-graph backend for d810-ng (mba-egraph)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-authors = [{ name = "d810 contributors" }]
+license-files = ["LICENSE"]
+authors = [{ name = "Mahmoud Rusty Abdelkader" }]
+keywords = ["deobfuscation", "mba", "egraph", "egglog", "ida-pro", "hex-rays"]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+]
+
+# Both are hard runtime dependencies, for different reasons.
+#
+# The floor is d810-ng>=1.0.0b2, NOT >=0.6.6, and the difference is the point.
+# Every module this backend actually runs -- saturation, rule lowering, the
+# composite rewriter, the optimizer -- imports d810.mba.extension_api, and the
+# optimizer additionally needs d810.backends.mba.extension_host. d810-ng 0.6.6
+# ships neither: its wheel has no d810/mba/extension_api.py and no
+# d810/backends/ package at all. Against 0.6.6 this distribution installs, and
+# then every selection of `mba-egraph` fails on an import error from inside the
+# backend rather than on a clear version mismatch at install time.
+#
+# The floor says 1.0.0b2, not 1.0.0, because a pre-release sorts BEFORE its
+# final (1.0.0b2 < 1.0.0) and pip skips pre-releases unless a specifier opts
+# in. >=1.0.0 would reject every beta while reporting "no version satisfies the
+# requirement" -- reading as nothing-released rather than beta-excluded.
+#
+# No released d810-ng satisfies this yet. That is deliberate: pip refusing to
+# install with a version error naming the requirement is strictly better than
+# installing something inert.
+#
+# egglog is pinned exactly, not floored. runtime.py's probe compares the
+# installed version against SUPPORTED_EGGLOG_VERSION and reports the backend
+# as UNAVAILABLE on any mismatch, so a range would let pip resolve a version
+# this package then refuses to use -- an install that succeeds and a backend
+# that never activates.
 dependencies = [
   "d810-ng>=1.0.0b2",
   "egglog==13.2.0",
@@ -18,6 +53,15 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8.0", "ruff>=0.12"]
 
+[project.urls]
+Homepage = "https://github.com/mahmoudimus/d810-egglog"
+Issues = "https://github.com/mahmoudimus/d810-egglog/issues"
+
+# This is the whole integration surface. d810's BackendRegistry scans this
+# group before its builtins, so an installed copy of this package supersedes
+# anything d810 ships under the same name. The group is deliberately
+# unversioned -- the compatibility contract lives in the manifest's
+# api_version, not in the entry-point name.
 [project.entry-points."d810.backends"]
 egglog = "d810_egglog:MANIFEST"
 
@@ -27,6 +71,9 @@ package-dir = { "" = "src" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Read at runtime through importlib.resources, so they must be IN the wheel;
+# a distribution that drops them installs and imports fine and then cannot load
+# a single profile. tools/verify_install.py checks the built artifact for them.
 [tool.setuptools.package-data]
 d810_egglog = ["profiles/*.json", "baselines/*.json"]
 

@@ -1,0 +1,93 @@
+# Fast PR feedback for the half of this package that can run on a runner.
+#
+# This is a PURE-PYTHON distribution -- no Cython, no compiled extension, no
+# per-platform wheels -- so unlike d810-CoBRA there is nothing here to build.
+# What limits this workflow is not a toolchain, it is a dependency:
+#
+#   d810-egglog requires d810-ng>=1.0.0b2, and no such release exists. PyPI's
+#   newest d810-ng is 0.6.6, whose wheel ships neither d810.mba.extension_api
+#   nor d810.backends. Sixteen of this package's twenty unit modules import
+#   one of those, so on a runner they cannot be collected, let alone pass.
+#
+# So this job runs the four modules that are genuinely d810-free and asserts
+# they stay green. The list is explicit rather than an --ignore list: a new
+# test that needs d810 should not be silently skipped here, and a new test that
+# does NOT need d810 should be added below on purpose.
+#
+# What this deliberately does NOT prove: that the optimizer, the rule
+# catalogue, the saturation contracts, or the config-v2 profiles work. Those
+# are exercised against a real d810-ng checkout, not here. deploy.yml's install
+# gate is what proves the built artifact is not inert.
+name: ci
+
+on:
+    pull_request:
+    push:
+        branches: [main]
+
+jobs:
+    tests:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                # Floor is the project's requires-python; ceiling is the newest
+                # interpreter egglog 13.2.0 ships wheels for that this package
+                # is expected to run on.
+                python: ["3.11", "3.13"]
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ matrix.python }}
+
+            # No `pip install .` -- that resolves d810-ng>=1.0.0b2 and fails on
+            # a packaging fact rather than on anything under test. egglog IS
+            # installed, and at the exact audited version, because the probe
+            # test asserts version-pinned behaviour.
+            - run: pip install pytest "egglog==13.2.0"
+
+            - name: Run d810-free unit tests
+              env:
+                  PYTHONPATH: src
+              run: |
+                  pytest -q \
+                    tests/unit/test_manifest.py \
+                    tests/unit/test_runtime_probe.py \
+                    tests/unit/test_hodur_fixture.py \
+                    tests/unit/test_run_egglog_native_performance_ci.py
+
+            # The probe is the contract d810 calls before selecting this
+            # backend, and it is the one runtime behaviour a runner can check
+            # for real. `None` means "the audited Egglog is importable here" --
+            # a known-answer check, not a boolean that only reports that an
+            # import statement ran.
+            - name: Probe reports the audited Egglog runtime as available
+              env:
+                  PYTHONPATH: src
+              run: |
+                  python - <<'PY'
+                  from d810_egglog.runtime import d810_backend_probe
+                  reason = d810_backend_probe()
+                  assert reason is None, f"probe rejected the runtime: {reason}"
+                  print("probe OK: audited Egglog runtime available")
+                  PY
+
+            - name: Manifest is well-formed
+              env:
+                  PYTHONPATH: src
+              run: |
+                  python - <<'PY'
+                  import d810_egglog as pkg
+                  m = pkg.MANIFEST
+                  assert set(m) >= {"name", "api_version", "provides"}, m
+                  assert m["name"] == "egglog", m
+                  assert isinstance(m["api_version"], int), m
+                  # provides must stay a STRING so d810 resolves it lazily: an
+                  # incompatible d810 must be able to reject this backend
+                  # without importing runtime.py and loading Egglog.
+                  assert isinstance(m["provides"], str), m
+                  assert m["implements"] == {"mba-egraph": "EgglogOptimizer"}, m
+                  print("manifest OK:", m)
+                  PY

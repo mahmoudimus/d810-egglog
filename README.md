@@ -1,5 +1,12 @@
 # d810-egglog
 
+[![ci](https://github.com/mahmoudimus/d810-egglog/actions/workflows/ci.yml/badge.svg)](https://github.com/mahmoudimus/d810-egglog/actions/workflows/ci.yml)
+[![deploy](https://github.com/mahmoudimus/d810-egglog/actions/workflows/deploy.yml/badge.svg)](https://github.com/mahmoudimus/d810-egglog/actions/workflows/deploy.yml)
+[![pypi](https://img.shields.io/pypi/v/d810-egglog.svg)](https://pypi.org/project/d810-egglog/)
+[![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![d810-ng](https://img.shields.io/badge/d810--ng-backend-8A2BE2.svg)](https://github.com/w00tzenheimer/d810-ng)
+
 `d810-egglog` is the optional Egglog implementation of d810-ng's
 backend-neutral `mba-egraph` pass.  Installing this distribution registers the
 `egglog` backend through the `d810.backends` entry-point group.
@@ -14,6 +21,16 @@ Install it alongside d810-ng when the e-graph backend is needed:
 ```bash
 python -m pip install d810-egglog
 ```
+
+> **Requires `d810-ng >= 1.0.0b2`, which is not released yet.**
+> Every module this backend runs -- `saturation`, `rule_lowering`,
+> `composite_rewrite`, the optimizer -- imports `d810.mba.extension_api`, and
+> the optimizer also needs `d810.backends.mba.extension_host`. d810-ng 0.6.6
+> ships neither, so pip will refuse to install this package against it,
+> deliberately. The floor is `1.0.0b2` rather than `1.0.0` because a
+> pre-release sorts *before* its final, so `>=1.0.0` would reject every beta.
+> A loud version error at install time beats a backend that installs and then
+> fails on import the first time a project selects `mba-egraph`.
 
 Installation registers the `egglog` backend in D810's `d810.backends`
 entry-point group. Core discovers the declaration without importing the

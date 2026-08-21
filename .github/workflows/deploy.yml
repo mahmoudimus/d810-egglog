@@ -1,0 +1,128 @@
+# Build the distribution and publish it to PyPI.
+#
+# The filename matters: the PyPI Trusted Publisher for d810-egglog is
+# registered against `deploy.yml` on mahmoudimus/d810-egglog. Renaming this
+# file breaks publishing with an authentication error that looks nothing like
+# the cause.
+#
+# There is no wheel matrix here, and that is not an omission. d810-egglog is
+# pure Python -- no Cython, no extension modules -- so the correct artifact set
+# is exactly one `py3-none-any` wheel plus one sdist. Running cibuildwheel
+# across five platforms would produce five identical wheels and four ways to
+# disagree about which one PyPI keeps.
+#
+# What replaces the per-platform build as the quality gate is
+# tools/verify_install.py, run against BOTH artifacts before upload. For this
+# package "broken" does not mean "fails to compile", it means "installs and is
+# never discovered" -- a missing entry point or missing package-data JSON. That
+# script is what makes such an artifact fail instead of ship.
+name: deploy
+
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            publish:
+                description: "Upload to PyPI (otherwise build only)"
+                required: false
+                default: false
+                type: boolean
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+
+            # Both artifacts from one invocation, so the sdist that gets
+            # uploaded is the one the wheel was built beside.
+            - name: Build sdist and wheel
+              run: pipx run build
+
+            - name: Metadata renders on PyPI
+              run: pipx run twine check --strict dist/*
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: dist
+                  path: ./dist/*
+                  retention-days: 30
+
+    # Separate job, and it installs from ./dist rather than from the checkout,
+    # so what is exercised is the ARTIFACT -- with whatever setuptools actually
+    # put in it -- and not the source tree sitting next to it.
+    verify:
+        needs: [build]
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                artifact: [wheel, sdist]
+                python: ["3.11", "3.13"]
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ matrix.python }}
+
+            - uses: actions/download-artifact@v4
+              with:
+                  name: dist
+                  path: dist
+
+            # --no-deps is load-bearing, not a shortcut. This package requires
+            # d810-ng>=1.0.0b2, which is not released, so a plain install fails
+            # while resolving that floor and never reaches the artifact --
+            # reporting a packaging fact as a build failure. The entry point,
+            # the package data and the Egglog probe all work without d810, so
+            # the gate installs the artifact alone and adds the one dependency
+            # it does exercise.
+            - name: Install the built ${{ matrix.artifact }}
+              run: |
+                  if [ "${{ matrix.artifact }}" = "wheel" ]; then
+                      target=$(ls dist/*.whl)
+                  else
+                      target=$(ls dist/*.tar.gz)
+                  fi
+                  echo "installing $target"
+                  pip install --no-deps "$target"
+                  pip install "egglog==13.2.0"
+
+            # From a directory with no ./src, so an importable source tree
+            # cannot stand in for the installed package and mask a wheel that
+            # ships nothing.
+            - name: Artifact is discoverable and probes clean
+              run: |
+                  mkdir -p /tmp/gate && cd /tmp/gate
+                  python "$GITHUB_WORKSPACE/tools/verify_install.py"
+
+    publish:
+        needs: [build, verify]
+        runs-on: ubuntu-latest
+        if: github.event_name == 'release' || inputs.publish
+        # No `environment:` on purpose. The Trusted Publisher for this project
+        # is registered with environment "(Any)", and the environment is part
+        # of what PyPI matches the OIDC token against. Declaring one here puts
+        # an `environment` claim in the token the publisher config does not
+        # expect, and the failure surfaces as an authentication error that says
+        # nothing about environments.
+        permissions:
+            # Required for PyPI Trusted Publishing (OIDC). Without it the
+            # upload fails on permissions, not on credentials.
+            id-token: write
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  name: dist
+                  path: dist
+            - uses: pypa/gh-action-pypi-publish@release/v1
