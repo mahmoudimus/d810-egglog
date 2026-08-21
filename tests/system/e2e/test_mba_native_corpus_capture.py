@@ -608,6 +608,7 @@ class TestNativeMbaCorpusCapture:
         monkeypatch.setenv("D810_LEGACY_DSL_PERMUTATIONS", "1")
         native_case = DeobfuscationCase(
             function="mba_shape_catalogue_01",
+            project="",
             description="native provider history capture",
             must_change=True,
         )
@@ -700,6 +701,7 @@ class TestNativeMbaCorpusCapture:
         monkeypatch.setenv("D810_LEGACY_DSL_PERMUTATIONS", "1")
         native_case = DeobfuscationCase(
             function="mba_shape_catalogue_01",
+            project="",
             description="capture a real post-snapshot catalogue outcome",
             must_change=True,
         )
@@ -786,11 +788,13 @@ class TestNativeMbaCorpusCapture:
         monkeypatch.setenv("D810_LEGACY_DSL_PERMUTATIONS", "1")
         first_case = DeobfuscationCase(
             function="mba_shape_catalogue_01",
+            project="",
             description="seed a real catalogue history outcome",
             must_change=True,
         )
         second_case = DeobfuscationCase(
             function="mba_shape_chain_01",
+            project="",
             description="produce a distinct real native profile",
             must_change=False,
         )
